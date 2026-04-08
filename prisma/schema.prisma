@@ -1,0 +1,175 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String                 @id @default(cuid())
+  ucfEmail        String                 @unique
+  isEmailVerified Boolean                @default(false)
+  emailVerifiedAt DateTime?
+  profile         Profile?
+  questionnaire   QuestionnaireResponse?
+  preference      Preference?
+  participations  WeeklyParticipation[]
+  reportsFiled    Report[]               @relation("ReportFiledBy")
+  reportsReceived Report[]               @relation("ReportAgainst")
+  blocksInitiated Block[]                @relation("BlockBy")
+  blocksReceived  Block[]                @relation("BlockAgainst")
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+}
+
+model Profile {
+  id             String   @id @default(cuid())
+  userId         String   @unique
+  firstName      String
+  lastName       String
+  major          String?
+  graduationYear Int?
+  bio            String?
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model QuestionnaireResponse {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  answers     Json
+  submittedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Preference {
+  id                 String   @id @default(cuid())
+  userId             String   @unique
+  preferredGenders   String[]
+  interests          String[]
+  communicationStyle String?
+  updatedAt          DateTime @updatedAt
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Week {
+  id             String                @id @default(cuid())
+  label          String                @unique
+  startDate      DateTime
+  endDate        DateTime
+  status         WeekStatus            @default(DRAFT)
+  participations WeeklyParticipation[]
+  matches        Match[]
+  reports        Report[]
+  createdAt      DateTime              @default(now())
+}
+
+model WeeklyParticipation {
+  id        String              @id @default(cuid())
+  userId    String
+  weekId    String
+  status    ParticipationStatus @default(OPTED_OUT)
+  optedInAt DateTime?
+  user      User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  week      Week                @relation(fields: [weekId], references: [id], onDelete: Cascade)
+  matchAsA  Match?              @relation("MatchParticipantA")
+  matchAsB  Match?              @relation("MatchParticipantB")
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+
+  @@unique([userId, weekId])
+  @@index([weekId, status])
+}
+
+model Match {
+  id             String              @id @default(cuid())
+  weekId         String
+  participantAId String              @unique
+  participantBId String              @unique
+  userAResponse  MatchResponse       @default(PENDING)
+  userBResponse  MatchResponse       @default(PENDING)
+  status         MatchStatus         @default(PENDING)
+  week           Week                @relation(fields: [weekId], references: [id], onDelete: Cascade)
+  participantA   WeeklyParticipation @relation("MatchParticipantA", fields: [participantAId], references: [id], onDelete: Cascade)
+  participantB   WeeklyParticipation @relation("MatchParticipantB", fields: [participantBId], references: [id], onDelete: Cascade)
+  reports        Report[]
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  @@index([weekId, status])
+}
+
+model Report {
+  id             String       @id @default(cuid())
+  reporterUserId String
+  reportedUserId String
+  weekId         String?
+  matchId        String?
+  reason         ReportReason
+  details        String?
+  status         ReportStatus @default(OPEN)
+  reporter       User         @relation("ReportFiledBy", fields: [reporterUserId], references: [id], onDelete: Cascade)
+  reportedUser   User         @relation("ReportAgainst", fields: [reportedUserId], references: [id], onDelete: Cascade)
+  week           Week?        @relation(fields: [weekId], references: [id], onDelete: SetNull)
+  match          Match?       @relation(fields: [matchId], references: [id], onDelete: SetNull)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([reporterUserId, createdAt])
+  @@index([reportedUserId, status])
+}
+
+model Block {
+  id            String   @id @default(cuid())
+  blockerUserId String
+  blockedUserId String
+  reason        String?
+  blocker       User     @relation("BlockBy", fields: [blockerUserId], references: [id], onDelete: Cascade)
+  blocked       User     @relation("BlockAgainst", fields: [blockedUserId], references: [id], onDelete: Cascade)
+  createdAt     DateTime @default(now())
+
+  @@unique([blockerUserId, blockedUserId])
+  @@index([blockedUserId])
+}
+
+enum WeekStatus {
+  DRAFT
+  ACTIVE
+  CLOSED
+}
+
+enum ParticipationStatus {
+  OPTED_OUT
+  OPTED_IN
+  MATCHED
+}
+
+enum MatchResponse {
+  PENDING
+  ACCEPTED
+  DECLINED
+}
+
+enum MatchStatus {
+  PENDING
+  ACTIVE
+  CLOSED
+}
+
+enum ReportReason {
+  HARASSMENT
+  SPAM
+  SAFETY_CONCERN
+  OTHER
+}
+
+enum ReportStatus {
+  OPEN
+  REVIEWING
+  RESOLVED
+  DISMISSED
+}
