@@ -1,29 +1,55 @@
-import { AppShell } from "@/components/app-shell";
-import { TopNav } from "@/components/top-nav";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { ParticipationStatus } from "@prisma/client";
 
-export default function WeeklyOptInPage() {
-  return (
-    <AppShell title="Weekly opt-in" subtitle="Confirm you want to be considered in this week’s batch.">
-      <TopNav pathname="/weekly-opt-in" />
-      <Card>
-        <CardHeader>
-          <CardTitle>Ready for this week?</CardTitle>
-          <CardDescription>Opt-in is explicit each cycle to reduce ghosting and stale matches.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <label className="flex items-start gap-2 rounded-md border p-3 text-sm">
-            <input type="checkbox" className="mt-0.5" />
-            I confirm I can message and schedule within 48 hours if matched.
-          </label>
-          <label className="flex items-start gap-2 rounded-md border p-3 text-sm">
-            <input type="checkbox" className="mt-0.5" />
-            I agree to community and safety expectations for UCF students.
-          </label>
-          <Button className="w-full">Opt in for this week</Button>
-        </CardContent>
-      </Card>
-    </AppShell>
-  );
+import { AppShell } from "@/components/app-shell";
+import { PageStateGate } from "@/components/page-state-gate";
+import { SignedOutPrompt } from "@/components/signed-out-prompt";
+import { TopNav } from "@/components/top-nav";
+import { resolveServerSession } from "@/lib/auth/server-user";
+import { getCurrentWeekStatus } from "@/lib/week";
+
+import { WeeklyOptInForm } from "./weekly-opt-in-form";
+
+export const dynamic = "force-dynamic";
+
+export default async function WeeklyOptInPage() {
+  const session = await resolveServerSession();
+  if (session.status === "signed_out") {
+    return (
+      <AppShell title="Weekly opt-in" subtitle="Confirm you want to be considered in this week’s batch.">
+        <TopNav pathname="/weekly-opt-in" />
+        <SignedOutPrompt />
+      </AppShell>
+    );
+  }
+
+  try {
+    const status = await getCurrentWeekStatus(session.userId);
+    const participationStatus = status.participation
+      ? status.participation.status
+      : ParticipationStatus.OPTED_OUT;
+
+    return (
+      <AppShell title="Weekly opt-in" subtitle="Confirm you want to be considered in this week’s batch.">
+        <TopNav pathname="/weekly-opt-in" />
+        <WeeklyOptInForm
+          weekLabel={status.week?.label ?? null}
+          noActiveWeek={!status.week}
+          canOptIn={status.canOptIn}
+          eligibilityReason={status.reason}
+          participationStatus={participationStatus}
+        />
+      </AppShell>
+    );
+  } catch {
+    return (
+      <AppShell title="Weekly opt-in" subtitle="Confirm you want to be considered in this week’s batch.">
+        <TopNav pathname="/weekly-opt-in" />
+        <PageStateGate
+          viewState="error"
+          errorDescription="We could not load weekly status. Please try again."
+          ready={null}
+        />
+      </AppShell>
+    );
+  }
 }

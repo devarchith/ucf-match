@@ -6,6 +6,7 @@ export type StepItem = {
 
 export type OnboardingDraft = {
   firstName: string;
+  lastName: string;
   major: string;
   graduationYear: string;
   intro: string;
@@ -67,6 +68,7 @@ export const onboardingSteps: StepItem[] = [
 
 export const onboardingDraft: OnboardingDraft = {
   firstName: "",
+  lastName: "",
   major: "",
   graduationYear: "",
   intro: "",
