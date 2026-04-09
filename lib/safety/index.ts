@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { MatchStatus, WeekStatus } from "@prisma/client";
 import { type BlockInput } from "@/lib/validation/block";
 import { type ReportInput } from "@/lib/validation/report";
 
@@ -11,6 +12,42 @@ export class SafetyServiceError extends Error {
   }
 }
 
+export function buildCurrentValidMatchWhere(
+  actorUserId: string,
+  otherUserId: string,
+  now: Date,
+  matchId?: string
+) {
+  const pairClause = [
+    {
+      participantA: { userId: actorUserId },
+      participantB: { userId: otherUserId }
+    },
+    {
+      participantA: { userId: otherUserId },
+      participantB: { userId: actorUserId }
+    }
+  ];
+
+  const baseWhere = {
+    status: { in: [MatchStatus.PENDING, MatchStatus.ACTIVE] },
+    week: {
+      status: WeekStatus.ACTIVE,
+      startDate: { lte: now },
+      endDate: { gte: now }
+    },
+    OR: pairClause
+  };
+
+  if (!matchId) {
+    return baseWhere;
+  }
+  return {
+    id: matchId,
+    ...baseWhere
+  };
+}
+
 async function assertMatchedUsers(
   actorUserId: string,
   otherUserId: string,
@@ -20,32 +57,12 @@ async function assertMatchedUsers(
     throw new SafetyServiceError("Cannot target yourself.", 400);
   }
 
-  const where = matchId
-    ? {
-        id: matchId,
-        OR: [
-          {
-            participantA: { userId: actorUserId },
-            participantB: { userId: otherUserId }
-          },
-          {
-            participantA: { userId: otherUserId },
-            participantB: { userId: actorUserId }
-          }
-        ]
-      }
-    : {
-        OR: [
-          {
-            participantA: { userId: actorUserId },
-            participantB: { userId: otherUserId }
-          },
-          {
-            participantA: { userId: otherUserId },
-            participantB: { userId: actorUserId }
-          }
-        ]
-      };
+  const where = buildCurrentValidMatchWhere(
+    actorUserId,
+    otherUserId,
+    new Date(),
+    matchId
+  );
 
   const match = await db.match.findFirst({
     where,
@@ -54,7 +71,7 @@ async function assertMatchedUsers(
 
   if (!match) {
     throw new SafetyServiceError(
-      "Reports and blocks are only available for matched users.",
+      "Reports and blocks are only available for currently valid matches.",
       403
     );
   }
@@ -121,13 +138,4 @@ export async function createBlock(blockerUserId: string, input: BlockInput) {
   });
 
   return block;
-}
-export type SafetyCheckResult = {
-  allowed: boolean;
-  reason?: string;
-};
-
-export function runSafetyChecks(): SafetyCheckResult {
-  // Placeholder for future trust and safety checks.
-  return { allowed: true };
 }

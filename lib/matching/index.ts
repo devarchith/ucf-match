@@ -1,5 +1,6 @@
 import { MatchStatus, ParticipationStatus, WeekStatus } from "@prisma/client";
 import { db } from "@/lib/db";
+import { assertParticipationTransition } from "@/lib/week";
 
 type MatchingFactor =
   | "sharedInterests"
@@ -28,6 +29,25 @@ export type GeneratedWeeklyMatch = {
   score: number;
   explanationPoints: string[];
 };
+
+export function deriveParticipationStatusesForRerun(
+  allParticipationIds: string[],
+  matchedParticipationIds: string[]
+) {
+  const matched = new Set(matchedParticipationIds);
+  const matchedIds: string[] = [];
+  const optedInIds: string[] = [];
+
+  for (const id of allParticipationIds) {
+    if (matched.has(id)) {
+      matchedIds.push(id);
+    } else {
+      optedInIds.push(id);
+    }
+  }
+
+  return { matchedIds, optedInIds };
+}
 
 export class MatchingEngineError extends Error {
   status: number;
@@ -203,10 +223,24 @@ export async function generateWeeklyMatches(weekId: string) {
     throw new MatchingEngineError("Week must be active for matching.", 409);
   }
 
+  // Rerun policy:
+  // - same-week PENDING matches are rerun-ephemeral and replaced by this run
+  // - same-week ACTIVE/CLOSED matches are finalized and must not be rematched in the same week
+  const finalizedMatches = await db.match.findMany({
+    where: { weekId, status: { in: [MatchStatus.ACTIVE, MatchStatus.CLOSED] } },
+    select: { participantAId: true, participantBId: true }
+  });
+  const lockedParticipationIds = new Set<string>();
+  for (const item of finalizedMatches) {
+    lockedParticipationIds.add(item.participantAId);
+    lockedParticipationIds.add(item.participantBId);
+  }
+
   const participations = await db.weeklyParticipation.findMany({
     where: {
       weekId,
-      status: ParticipationStatus.OPTED_IN
+      status: { in: [ParticipationStatus.OPTED_IN, ParticipationStatus.MATCHED] },
+      id: { notIn: [...lockedParticipationIds] }
     },
     include: {
       user: {
@@ -227,33 +261,42 @@ export async function generateWeeklyMatches(weekId: string) {
     orderBy: { userId: "asc" }
   });
 
-  if (participations.length < 2) {
-    return [] as GeneratedWeeklyMatch[];
-  }
-
   const userIds = participations.map((item) => item.userId);
 
   // Hard filters: never match blocked users or users with previous matches.
-  const [blocks, historicalMatches] = await Promise.all([
-    db.block.findMany({
-      where: {
-        OR: [{ blockerUserId: { in: userIds } }, { blockedUserId: { in: userIds } }]
-      },
-      select: { blockerUserId: true, blockedUserId: true }
-    }),
-    db.match.findMany({
-      where: {
-        OR: [
-          { participantA: { userId: { in: userIds } } },
-          { participantB: { userId: { in: userIds } } }
-        ]
-      },
-      select: {
-        participantA: { select: { userId: true } },
-        participantB: { select: { userId: true } }
-      }
-    })
-  ]);
+  const [blocks, historicalMatches] =
+    userIds.length === 0
+      ? [[], []]
+      : await Promise.all([
+          db.block.findMany({
+            where: {
+              OR: [{ blockerUserId: { in: userIds } }, { blockedUserId: { in: userIds } }]
+            },
+            select: { blockerUserId: true, blockedUserId: true }
+          }),
+          db.match.findMany({
+            where: {
+              AND: [
+                {
+                  OR: [
+                    { weekId: { not: weekId } },
+                    { weekId, status: { in: [MatchStatus.ACTIVE, MatchStatus.CLOSED] } }
+                  ]
+                },
+                {
+                  OR: [
+                    { participantA: { userId: { in: userIds } } },
+                    { participantB: { userId: { in: userIds } } }
+                  ]
+                }
+              ]
+            },
+            select: {
+              participantA: { select: { userId: true } },
+              participantB: { select: { userId: true } }
+            }
+          })
+        ]);
 
   const blockedPairs = new Set<string>();
   for (const block of blocks) {
@@ -331,16 +374,35 @@ export async function generateWeeklyMatches(weekId: string) {
     return true;
   });
 
-  if (selected.length === 0) {
-    return [] as GeneratedWeeklyMatch[];
-  }
-
   const createdMatches = await db.$transaction(async (tx) => {
+    const rowsToReset = await tx.weeklyParticipation.findMany({
+      where: {
+        weekId,
+        status: ParticipationStatus.MATCHED,
+        id: { notIn: [...lockedParticipationIds] }
+      },
+      select: { id: true, status: true }
+    });
+    for (const row of rowsToReset) {
+      assertParticipationTransition(row.status, ParticipationStatus.OPTED_IN, "matching_rerun");
+      const reset = await tx.weeklyParticipation.updateMany({
+        where: { id: row.id, status: ParticipationStatus.MATCHED },
+        data: { status: ParticipationStatus.OPTED_IN }
+      });
+      if (reset.count !== 1) {
+        throw new MatchingEngineError(
+          "Weekly participation changed during rerun reset transition.",
+          409
+        );
+      }
+    }
+
     await tx.match.deleteMany({
       where: { weekId, status: MatchStatus.PENDING }
     });
 
     const results: GeneratedWeeklyMatch[] = [];
+    const matchedParticipationIds: string[] = [];
     for (const pick of selected) {
       const match = await tx.match.create({
         data: {
@@ -351,11 +413,7 @@ export async function generateWeeklyMatches(weekId: string) {
         },
         select: { id: true }
       });
-
-      await tx.weeklyParticipation.updateMany({
-        where: { id: { in: [pick.participationAId, pick.participationBId] } },
-        data: { status: ParticipationStatus.MATCHED }
-      });
+      matchedParticipationIds.push(pick.participationAId, pick.participationBId);
 
       const topFactors = [...pick.factors]
         .sort((a, b) => b.points - a.points)
@@ -373,6 +431,37 @@ export async function generateWeeklyMatches(weekId: string) {
         explanationPoints: topFactors
       });
     }
+
+    const allParticipationIds = participations.map((item) => item.id);
+    const rerunStatuses = deriveParticipationStatusesForRerun(
+      allParticipationIds,
+      matchedParticipationIds
+    );
+
+    if (rerunStatuses.matchedIds.length > 0) {
+      for (const participationId of rerunStatuses.matchedIds) {
+        const current = await tx.weeklyParticipation.findUnique({
+          where: { id: participationId },
+          select: { status: true }
+        });
+        if (!current) {
+          throw new MatchingEngineError("Weekly participation missing during assignment.", 409);
+        }
+        assertParticipationTransition(current.status, ParticipationStatus.MATCHED, "matching_assign");
+        const assigned = await tx.weeklyParticipation.updateMany({
+          where: { id: participationId, status: ParticipationStatus.OPTED_IN },
+          data: { status: ParticipationStatus.MATCHED }
+        });
+        if (assigned.count !== 1) {
+          throw new MatchingEngineError(
+            "Weekly participation changed during matching assignment transition.",
+            409
+          );
+        }
+      }
+    }
+    // Non-selected rows were already reset to OPTED_IN above.
+
     return results;
   });
 

@@ -1,6 +1,5 @@
 import { db } from "@/lib/db";
-import { Prisma } from "@prisma/client";
-import { type QuestionnaireInput } from "@/lib/validation/questionnaire";
+import { type QuestionnaireInput, type JsonCompatible } from "@/lib/validation/questionnaire";
 
 export class QuestionnaireServiceError extends Error {
   status: number;
@@ -15,7 +14,7 @@ export async function submitQuestionnaire(
   userId: string,
   input: QuestionnaireInput
 ) {
-  const answers = input.answers as Prisma.InputJsonValue;
+  const answers: JsonCompatible = input.answers;
 
   const user = await db.user.findUnique({
     where: { id: userId },
