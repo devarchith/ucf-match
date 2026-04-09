@@ -142,3 +142,127 @@ test("contract: report route returns expected response fields", async () => {
     env.DEV_AUTH_UCF_EMAIL = previous.DEV_AUTH_UCF_EMAIL;
   }
 });
+
+test("contract: me GET returns expected top-level shape", async () => {
+  const env = process.env as Record<string, string | undefined>;
+  const previous = {
+    NODE_ENV: env.NODE_ENV,
+    AUTH_MODE: env.AUTH_MODE,
+    DEV_AUTH_ENABLED: env.DEV_AUTH_ENABLED,
+    DEV_AUTH_TOKEN: env.DEV_AUTH_TOKEN,
+    DEV_AUTH_USER_ID: env.DEV_AUTH_USER_ID,
+    DEV_AUTH_UCF_EMAIL: env.DEV_AUTH_UCF_EMAIL
+  };
+
+  try {
+    env.NODE_ENV = "development";
+    env.AUTH_MODE = "dev";
+    env.DEV_AUTH_ENABLED = "true";
+    env.DEV_AUTH_TOKEN = "me-get-token";
+    env.DEV_AUTH_USER_ID = "me-user";
+    env.DEV_AUTH_UCF_EMAIL = "me@ucf.edu";
+
+    await withDbMock(
+      (mockDb) => {
+        (mockDb.user as unknown as { findUnique: unknown }).findUnique = async () => ({
+          id: "me-user",
+          ucfEmail: "me@ucf.edu",
+          isEmailVerified: true,
+          profile: {
+            id: "p1",
+            userId: "me-user",
+            firstName: "M",
+            lastName: "E",
+            major: null,
+            graduationYear: null,
+            bio: null,
+            createdAt: new Date("2020-01-01T00:00:00.000Z"),
+            updatedAt: new Date("2020-01-02T00:00:00.000Z")
+          },
+          questionnaire: { id: "q1" },
+          preference: { id: "pr1" }
+        });
+      },
+      async () => {
+        const { GET } = await import("@/app/api/me/route");
+        const res = await GET(
+          new Request("http://localhost/api/me", {
+            headers: { authorization: "Bearer me-get-token" }
+          })
+        );
+        const body = (await res.json()) as Record<string, unknown>;
+        assert.equal(res.status, 200);
+        assert.equal(body.userId, "me-user");
+        assert.equal(body.ucfEmail, "me@ucf.edu");
+        assert.equal(body.isEmailVerified, true);
+        assert.equal(body.hasQuestionnaire, true);
+        assert.equal(body.hasPreferences, true);
+        assert.equal(typeof body.profile, "object");
+      }
+    );
+  } finally {
+    env.NODE_ENV = previous.NODE_ENV;
+    env.AUTH_MODE = previous.AUTH_MODE;
+    env.DEV_AUTH_ENABLED = previous.DEV_AUTH_ENABLED;
+    env.DEV_AUTH_TOKEN = previous.DEV_AUTH_TOKEN;
+    env.DEV_AUTH_USER_ID = previous.DEV_AUTH_USER_ID;
+    env.DEV_AUTH_UCF_EMAIL = previous.DEV_AUTH_UCF_EMAIL;
+  }
+});
+
+test("contract: profile GET returns expected response fields", async () => {
+  const env = process.env as Record<string, string | undefined>;
+  const previous = {
+    NODE_ENV: env.NODE_ENV,
+    AUTH_MODE: env.AUTH_MODE,
+    DEV_AUTH_ENABLED: env.DEV_AUTH_ENABLED,
+    DEV_AUTH_TOKEN: env.DEV_AUTH_TOKEN,
+    DEV_AUTH_USER_ID: env.DEV_AUTH_USER_ID,
+    DEV_AUTH_UCF_EMAIL: env.DEV_AUTH_UCF_EMAIL
+  };
+
+  try {
+    env.NODE_ENV = "development";
+    env.AUTH_MODE = "dev";
+    env.DEV_AUTH_ENABLED = "true";
+    env.DEV_AUTH_TOKEN = "profile-get-token";
+    env.DEV_AUTH_USER_ID = "profile-user";
+    env.DEV_AUTH_UCF_EMAIL = "profile@ucf.edu";
+
+    await withDbMock(
+      (mockDb) => {
+        (mockDb.profile as unknown as { findUnique: unknown }).findUnique = async () => ({
+          id: "prof1",
+          userId: "profile-user",
+          firstName: "Pro",
+          lastName: "File",
+          major: "CS",
+          graduationYear: 2026,
+          bio: "hi",
+          createdAt: new Date("2020-01-01T00:00:00.000Z"),
+          updatedAt: new Date("2020-01-02T00:00:00.000Z")
+        });
+      },
+      async () => {
+        const { GET } = await import("@/app/api/profile/route");
+        const res = await GET(
+          new Request("http://localhost/api/profile", {
+            headers: { authorization: "Bearer profile-get-token" }
+          })
+        );
+        const body = (await res.json()) as Record<string, unknown>;
+        assert.equal(res.status, 200);
+        assert.equal(body.userId, "profile-user");
+        assert.equal(typeof body.createdAt, "string");
+        assert.equal(typeof body.updatedAt, "string");
+      }
+    );
+  } finally {
+    env.NODE_ENV = previous.NODE_ENV;
+    env.AUTH_MODE = previous.AUTH_MODE;
+    env.DEV_AUTH_ENABLED = previous.DEV_AUTH_ENABLED;
+    env.DEV_AUTH_TOKEN = previous.DEV_AUTH_TOKEN;
+    env.DEV_AUTH_USER_ID = previous.DEV_AUTH_USER_ID;
+    env.DEV_AUTH_UCF_EMAIL = previous.DEV_AUTH_UCF_EMAIL;
+  }
+});

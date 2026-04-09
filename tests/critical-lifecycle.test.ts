@@ -80,6 +80,21 @@ test("preferences validation rejects empty required arrays", () => {
   assert.equal(parsed.success, false);
 });
 
+test("preferences validation accepts comfort slider payload", () => {
+  const parsed = preferencesInputSchema.safeParse({
+    campusAreaDistance: "medium",
+    conversationPace: "high",
+    meetingWindows: "low"
+  });
+  assert.equal(parsed.success, true);
+  if (parsed.success) {
+    assert.deepEqual(parsed.data.preferredGenders, ["any"]);
+    assert.equal(parsed.data.interests.includes("campus-area:medium"), true);
+    assert.equal(parsed.data.interests.includes("conversation-pace:high"), true);
+    assert.equal(parsed.data.interests.includes("meeting-windows:low"), true);
+  }
+});
+
 test("questionnaire validation accepts only JSON-compatible answers", () => {
   assert.equal(
     questionnaireInputSchema.safeParse({
