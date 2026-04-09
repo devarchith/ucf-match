@@ -49,9 +49,14 @@
     - `updatedAt: string`
 
 ## Weekly Status
-- `PUT /api/weeks/{weekId}/status`
-  - Request
-    - `status: "OPTED_IN" | "OPTED_OUT"`
+- `GET /api/weeks/current`
+  - Response
+    - `week: { id: string; label: string; startDate: string; endDate: string; status: "ACTIVE" | "DRAFT" | "CLOSED" } | null`
+    - `participation: { id: string | null; status: "OPTED_IN" | "OPTED_OUT" | "MATCHED"; optedInAt: string | null; updatedAt: string | null } | null`
+    - `canOptIn: boolean`
+    - `reason: string | null`
+
+- `PUT /api/weeks/current/opt-in`
   - Response
     - `id: string`
     - `userId: string`
@@ -84,7 +89,10 @@
     - `id: string`
     - `reporterUserId: string`
     - `reportedUserId: string`
-    - `status: "OPEN" | "REVIEWING" | "RESOLVED" | "DISMISSED"`
+    - `matchId: string`
+    - `weekId: string`
+    - `reason: "HARASSMENT" | "SPAM" | "SAFETY_CONCERN" | "OTHER"`
+    - `details: string | null`
     - `createdAt: string`
 
 - `POST /api/blocks`
@@ -95,4 +103,11 @@
     - `id: string`
     - `blockerUserId: string`
     - `blockedUserId: string`
+    - `reason: string | null`
     - `createdAt: string`
+
+## Error Envelopes
+- Validation/domain/auth errors generally return:
+  - `{ "error": string }`
+- Auth operational configuration failures return:
+  - `{ "error": string, "code": "AUTH_MISCONFIGURED" | "AUTH_PROVIDER_UNIMPLEMENTED" | "AUTH_PROVIDER_UNAVAILABLE" }`

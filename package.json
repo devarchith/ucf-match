@@ -7,6 +7,17 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "db:test:up": "docker compose -f docker-compose.test.yml up -d",
+    "db:test:down": "docker compose -f docker-compose.test.yml down -v",
+    "db:test:logs": "docker compose -f docker-compose.test.yml logs postgres-test",
+    "db:test:wait": "bash -lc 'for i in $(seq 1 40); do if docker compose -f docker-compose.test.yml exec -T postgres-test pg_isready -U postgres -d ucf_match_test >/dev/null 2>&1; then exit 0; fi; sleep 1; done; echo \"Test DB did not become ready in time.\"; exit 1'",
+    "test": "tsx --test tests/*.unit.test.ts tests/critical-lifecycle.test.ts tests/auth-route.integration.ts tests/contract-routes.unit.test.ts",
+    "test:fast": "npm run test",
+    "test:critical:db:prepare": "bash -lc 'DEFAULT_TEST_DATABASE_URL=\"postgresql://postgres:postgres@localhost:54329/ucf_match_test?schema=public\"; export TEST_DATABASE_URL=\"${TEST_DATABASE_URL:-$DEFAULT_TEST_DATABASE_URL}\"; DATABASE_URL=\"$TEST_DATABASE_URL\" npx prisma migrate deploy'",
+    "test:critical:db": "bash -lc 'DEFAULT_TEST_DATABASE_URL=\"postgresql://postgres:postgres@localhost:54329/ucf_match_test?schema=public\"; export TEST_DATABASE_URL=\"${TEST_DATABASE_URL:-$DEFAULT_TEST_DATABASE_URL}\"; DATABASE_URL=\"$TEST_DATABASE_URL\" tsx --test tests/backend-critical-db.integration.ts'",
+    "test:critical:db:e2e": "bash scripts/test-critical-db-e2e.sh",
+    "test:gate": "bash -lc 'set -euo pipefail; npm run test:fast; npm run test:critical:db:e2e'",
+    "test:gate:ci": "bash -lc 'set -euo pipefail; npm run test:fast; npm run test:critical:db:prepare; npm run test:critical:db'",
     "typecheck": "tsc --noEmit",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
@@ -33,6 +44,7 @@
     "postcss": "^8.5.3",
     "prisma": "^6.5.0",
     "tailwindcss": "^3.4.17",
+    "tsx": "^4.20.3",
     "typescript": "^5.8.2"
   }
 }
