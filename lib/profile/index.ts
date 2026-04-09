@@ -11,6 +11,23 @@ export class ProfileServiceError extends Error {
   }
 }
 
+export async function getProfileForUser(userId: string) {
+  return db.profile.findUnique({
+    where: { userId },
+    select: {
+      id: true,
+      userId: true,
+      firstName: true,
+      lastName: true,
+      major: true,
+      graduationYear: true,
+      bio: true,
+      createdAt: true,
+      updatedAt: true
+    }
+  });
+}
+
 export async function createOrUpdateProfile(userId: string, input: ProfileInput) {
   const user = await db.user.findUnique({
     where: { id: userId },
