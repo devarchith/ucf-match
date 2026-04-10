@@ -1,21 +1,50 @@
 "use server";
 
 import { ZodError } from "zod";
+import { checkServerActionApiIdentity } from "@/lib/api/assert-action-identity";
+import { devBearerApiJson } from "@/lib/api/authenticated-server-client";
+import { AuthError } from "@/lib/auth";
+import {
+  questionnaireSubmitWireSchema,
+  type QuestionnaireSubmitWire
+} from "@/lib/api/contracts/questionnaire";
+import {
+  mapDevBearerFailure,
+  unexpectedMappedActionFailure,
+  type MappedActionFailure
+} from "@/lib/api/map-dev-bearer-to-action";
+import { SERVER_ACTION_UNAUTHORIZED } from "@/lib/auth/action-auth";
 import { getServerUserId } from "@/lib/auth/server-user";
-import { QuestionnaireServiceError, submitQuestionnaire } from "@/lib/questionnaire";
 import { questionnaireInputSchema } from "@/lib/validation/questionnaire";
-import { type SerializedZodIssue, serializeZodIssues } from "@/lib/validation/zod-issues";
+import { serializeZodIssues } from "@/lib/validation/zod-issues";
 
 export type QuestionnaireActionResult =
-  | { ok: true; data: Awaited<ReturnType<typeof submitQuestionnaire>> }
-  | { ok: false; message: string; issues?: SerializedZodIssue[] };
+  | { ok: true; data: QuestionnaireSubmitWire }
+  | MappedActionFailure;
 
 export async function submitQuestionnaireAction(payload: unknown): Promise<QuestionnaireActionResult> {
+  let userId: string;
   try {
-    const userId = await getServerUserId();
-    const input = questionnaireInputSchema.parse(payload);
-    const data = await submitQuestionnaire(userId, input);
-    return { ok: true, data };
+    userId = await getServerUserId();
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return {
+        ok: false,
+        code: SERVER_ACTION_UNAUTHORIZED,
+        message: "You are not signed in."
+      };
+    }
+    return unexpectedMappedActionFailure(error);
+  }
+
+  const identityFailure = await checkServerActionApiIdentity(userId);
+  if (identityFailure) {
+    return identityFailure;
+  }
+
+  let input;
+  try {
+    input = questionnaireInputSchema.parse(payload);
   } catch (error) {
     if (error instanceof ZodError) {
       const issues = serializeZodIssues(error);
@@ -25,9 +54,18 @@ export async function submitQuestionnaireAction(payload: unknown): Promise<Quest
         issues
       };
     }
-    if (error instanceof QuestionnaireServiceError) {
-      return { ok: false, message: error.message };
-    }
-    return { ok: false, message: "Could not save questionnaire. Try again." };
+    return unexpectedMappedActionFailure(error);
   }
+
+  const result = await devBearerApiJson(
+    "/api/questionnaire",
+    { method: "POST", body: JSON.stringify(input) },
+    questionnaireSubmitWireSchema
+  );
+
+  if (!result.ok) {
+    return mapDevBearerFailure(result);
+  }
+
+  return { ok: true, data: result.data };
 }

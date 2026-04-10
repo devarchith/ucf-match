@@ -9,7 +9,15 @@ import { SignedOutPrompt } from "@/components/signed-out-prompt";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { SERVER_ACTION_UNAUTHORIZED } from "@/lib/auth/action-auth";
+import { isAuthMisconfiguredCode, isHttpErrorCode, isResponseIntegrityCode } from "@/lib/auth/action-failure-ui";
+import {
+  SERVER_ACTION_AUTH_IDENTITY_MISMATCH,
+  SERVER_ACTION_CONFLICT,
+  SERVER_ACTION_FORBIDDEN,
+  SERVER_ACTION_NETWORK_FAILURE,
+  SERVER_ACTION_UNAUTHORIZED
+} from "@/lib/auth/action-auth";
+import { serverActionFailureTitle } from "@/lib/auth/server-action-failure-copy";
 import { NETWORK_ERROR_MESSAGE } from "@/lib/validation/zod-issues";
 
 type WeeklyOptInFormProps = {
@@ -31,6 +39,10 @@ export function WeeklyOptInForm({
   const submitGuard = useRef(false);
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState("");
+  const [errorTitle, setErrorTitle] = useState("Could not opt in");
+  const [setupMessage, setSetupMessage] = useState("");
+  const [unexpectedApi, setUnexpectedApi] = useState<{ title: string; message: string } | null>(null);
+  const [identityMismatchMessage, setIdentityMismatchMessage] = useState("");
   const [signedOut, setSignedOut] = useState(false);
   const [optInSucceeded, setOptInSucceeded] = useState(false);
   const [confirmTiming, setConfirmTiming] = useState(false);
@@ -40,10 +52,16 @@ export function WeeklyOptInForm({
     participationStatus === ParticipationStatus.OPTED_IN ||
     participationStatus === ParticipationStatus.MATCHED;
 
+  const flowBlocked = Boolean(identityMismatchMessage || unexpectedApi);
+
   const onOptIn = () => {
     if (submitGuard.current || isPending || optInSucceeded) return;
     submitGuard.current = true;
     setError("");
+    setErrorTitle("Could not opt in");
+    setSetupMessage("");
+    setUnexpectedApi(null);
+    setIdentityMismatchMessage("");
     setSignedOut(false);
     setOptInSucceeded(false);
     startTransition(async () => {
@@ -55,15 +73,46 @@ export function WeeklyOptInForm({
             setSignedOut(true);
             return;
           }
+          if (result.code === SERVER_ACTION_AUTH_IDENTITY_MISMATCH) {
+            setIdentityMismatchMessage(result.message);
+            return;
+          }
+          if (isAuthMisconfiguredCode(result.code)) {
+            setSetupMessage(result.message);
+            return;
+          }
+          if (isResponseIntegrityCode(result.code) || isHttpErrorCode(result.code)) {
+            setUnexpectedApi({
+              title: serverActionFailureTitle(result.code),
+              message: result.message
+            });
+            return;
+          }
+          if (result.code === SERVER_ACTION_NETWORK_FAILURE) {
+            setErrorTitle(serverActionFailureTitle(result.code));
+            setError(result.message);
+            return;
+          }
+          if (result.code === SERVER_ACTION_FORBIDDEN) {
+            setErrorTitle(serverActionFailureTitle(result.code));
+            setError(result.message);
+            return;
+          }
+          if (result.code === SERVER_ACTION_CONFLICT) {
+            setErrorTitle(serverActionFailureTitle(result.code));
+            setError(result.message);
+            return;
+          }
+          setErrorTitle(serverActionFailureTitle(result.code));
           setError(result.message);
           return;
         }
         setOptInSucceeded(true);
         await new Promise((r) => setTimeout(r, 450));
         router.push("/dashboard");
-        router.refresh();
       } catch {
         submitGuard.current = false;
+        setErrorTitle("Could not opt in");
         setError(NETWORK_ERROR_MESSAGE);
       }
     });
@@ -77,7 +126,8 @@ export function WeeklyOptInForm({
     !alreadyOptedIn &&
     checksOk &&
     !isPending &&
-    !optInSucceeded;
+    !optInSucceeded &&
+    !flowBlocked;
 
   if (signedOut) {
     return <SignedOutPrompt />;
@@ -99,9 +149,30 @@ export function WeeklyOptInForm({
           </Alert>
         ) : null}
 
+        {setupMessage ? (
+          <Alert>
+            <AlertTitle>API setup required</AlertTitle>
+            <AlertDescription>{setupMessage}</AlertDescription>
+          </Alert>
+        ) : null}
+
+        {unexpectedApi ? (
+          <Alert variant="destructive">
+            <AlertTitle>{unexpectedApi.title}</AlertTitle>
+            <AlertDescription>{unexpectedApi.message}</AlertDescription>
+          </Alert>
+        ) : null}
+
+        {identityMismatchMessage ? (
+          <Alert variant="destructive">
+            <AlertTitle>Session mismatch</AlertTitle>
+            <AlertDescription>{identityMismatchMessage}</AlertDescription>
+          </Alert>
+        ) : null}
+
         {error ? (
           <Alert variant="destructive">
-            <AlertTitle>Could not opt in</AlertTitle>
+            <AlertTitle>{errorTitle}</AlertTitle>
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         ) : null}
@@ -137,7 +208,9 @@ export function WeeklyOptInForm({
             className="mt-0.5"
             checked={confirmTiming}
             onChange={(e) => setConfirmTiming(e.target.checked)}
-            disabled={alreadyOptedIn || noActiveWeek || !canOptIn || isPending || optInSucceeded}
+            disabled={
+              alreadyOptedIn || noActiveWeek || !canOptIn || isPending || optInSucceeded || flowBlocked
+            }
           />
           I confirm I can message and schedule within 48 hours if matched.
         </label>
@@ -147,7 +220,9 @@ export function WeeklyOptInForm({
             className="mt-0.5"
             checked={confirmSafety}
             onChange={(e) => setConfirmSafety(e.target.checked)}
-            disabled={alreadyOptedIn || noActiveWeek || !canOptIn || isPending || optInSucceeded}
+            disabled={
+              alreadyOptedIn || noActiveWeek || !canOptIn || isPending || optInSucceeded || flowBlocked
+            }
           />
           I agree to community and safety expectations for UCF students.
         </label>

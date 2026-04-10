@@ -6,6 +6,7 @@ import { useMemo, useRef, useState, useTransition } from "react";
 
 import { submitQuestionnaireAction } from "@/app/actions/questionnaire";
 import { ProgressSteps } from "@/components/progress-steps";
+import { SignedOutPrompt } from "@/components/signed-out-prompt";
 import { EmptyState, ErrorState } from "@/components/state-block";
 import { ResponsiveActionRow } from "@/components/responsive-action-row";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -13,6 +14,13 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { isAuthMisconfiguredCode, isHttpErrorCode, isResponseIntegrityCode } from "@/lib/auth/action-failure-ui";
+import {
+  SERVER_ACTION_AUTH_IDENTITY_MISMATCH,
+  SERVER_ACTION_NETWORK_FAILURE,
+  SERVER_ACTION_UNAUTHORIZED
+} from "@/lib/auth/action-auth";
+import { serverActionFailureTitle } from "@/lib/auth/server-action-failure-copy";
 import {
   PromptId,
   createInitialAnswers,
@@ -70,6 +78,11 @@ export function QuestionnaireFlow() {
   const [serverFieldErrors, setServerFieldErrors] = useState<Partial<Record<PromptId, string>>>({});
   const [serverGeneralErrors, setServerGeneralErrors] = useState<string[]>([]);
   const [saveSucceeded, setSaveSucceeded] = useState(false);
+  const [signedOut, setSignedOut] = useState(false);
+  const [setupMessage, setSetupMessage] = useState("");
+  const [unexpectedApi, setUnexpectedApi] = useState<{ title: string; message: string } | null>(null);
+  const [identityMismatchMessage, setIdentityMismatchMessage] = useState("");
+  const [submitErrorTitle, setSubmitErrorTitle] = useState("Could not save questionnaire");
 
   const requiredPrompts = useMemo(() => weeklyPrompts.filter((prompt) => prompt.required), []);
   const completedRequired = requiredPrompts.filter((prompt) => answers[prompt.id].trim().length > 0).length;
@@ -78,6 +91,10 @@ export function QuestionnaireFlow() {
     setSaved(false);
     setSaveSucceeded(false);
     setSubmitError("");
+    setSubmitErrorTitle("Could not save questionnaire");
+    setSetupMessage("");
+    setUnexpectedApi(null);
+    setIdentityMismatchMessage("");
     setAnswers((prev) => ({ ...prev, [id]: value }));
     setErrors((prev) => ({ ...prev, [id]: undefined }));
     setServerFieldErrors((prev) => ({ ...prev, [id]: undefined }));
@@ -108,6 +125,10 @@ export function QuestionnaireFlow() {
     if (!validate()) return;
     submitGuard.current = true;
     setSubmitError("");
+    setSubmitErrorTitle("Could not save questionnaire");
+    setSetupMessage("");
+    setUnexpectedApi(null);
+    setIdentityMismatchMessage("");
     setServerFieldErrors({});
     setServerGeneralErrors([]);
     setSaveSucceeded(false);
@@ -116,11 +137,36 @@ export function QuestionnaireFlow() {
         const result = await submitQuestionnaireAction({ answers });
         if (!result.ok) {
           submitGuard.current = false;
+          if (result.code === SERVER_ACTION_UNAUTHORIZED) {
+            setSignedOut(true);
+            return;
+          }
+          if (result.code === SERVER_ACTION_AUTH_IDENTITY_MISMATCH) {
+            setIdentityMismatchMessage(result.message);
+            return;
+          }
+          if (isAuthMisconfiguredCode(result.code)) {
+            setSetupMessage(result.message);
+            return;
+          }
+          if (isResponseIntegrityCode(result.code) || isHttpErrorCode(result.code)) {
+            setUnexpectedApi({
+              title: serverActionFailureTitle(result.code),
+              message: result.message
+            });
+            return;
+          }
+          if (result.code === SERVER_ACTION_NETWORK_FAILURE) {
+            setSubmitErrorTitle(serverActionFailureTitle(result.code));
+            setSubmitError(result.message);
+            return;
+          }
           if (result.issues?.length) {
             const { perField, general } = splitQuestionnaireIssues(result.issues);
             setServerFieldErrors(perField);
             setServerGeneralErrors(general);
           }
+          setSubmitErrorTitle(serverActionFailureTitle(result.code));
           setSubmitError(result.message);
           return;
         }
@@ -136,6 +182,12 @@ export function QuestionnaireFlow() {
       }
     });
   };
+
+  if (signedOut) {
+    return <SignedOutPrompt />;
+  }
+
+  const flowBlocked = Boolean(identityMismatchMessage);
 
   if (!schedulePrompt) {
     return (
@@ -171,7 +223,10 @@ export function QuestionnaireFlow() {
   const showBulkError =
     Boolean(submitError) &&
     Object.keys(serverFieldErrors).length === 0 &&
-    serverGeneralErrors.length === 0;
+    serverGeneralErrors.length === 0 &&
+    !setupMessage &&
+    !unexpectedApi &&
+    !identityMismatchMessage;
 
   return (
     <Card>
@@ -190,6 +245,27 @@ export function QuestionnaireFlow() {
           </Alert>
         ) : null}
 
+        {setupMessage ? (
+          <Alert>
+            <AlertTitle>API setup required</AlertTitle>
+            <AlertDescription>{setupMessage}</AlertDescription>
+          </Alert>
+        ) : null}
+
+        {unexpectedApi ? (
+          <Alert variant="destructive">
+            <AlertTitle>{unexpectedApi.title}</AlertTitle>
+            <AlertDescription>{unexpectedApi.message}</AlertDescription>
+          </Alert>
+        ) : null}
+
+        {identityMismatchMessage ? (
+          <Alert variant="destructive">
+            <AlertTitle>Session mismatch</AlertTitle>
+            <AlertDescription>{identityMismatchMessage}</AlertDescription>
+          </Alert>
+        ) : null}
+
         {serverGeneralErrors.length > 0 ? (
           <Alert variant="destructive">
             <AlertTitle>Check your answers</AlertTitle>
@@ -205,7 +281,7 @@ export function QuestionnaireFlow() {
 
         {showBulkError ? (
           <Alert variant="destructive">
-            <AlertTitle>Could not save questionnaire</AlertTitle>
+            <AlertTitle>{submitErrorTitle}</AlertTitle>
             <AlertDescription>{submitError}</AlertDescription>
           </Alert>
         ) : null}
@@ -276,13 +352,13 @@ export function QuestionnaireFlow() {
         {saved ? <p className="text-xs text-muted-foreground">Saved locally. You can continue anytime.</p> : null}
 
         <ResponsiveActionRow>
-          <Button variant="outline" onClick={() => setSaved(true)} disabled={isPending || saveSucceeded}>
+          <Button variant="outline" onClick={() => setSaved(true)} disabled={isPending || saveSucceeded || flowBlocked}>
             Save and continue later
           </Button>
           {step < questionnaireSteps.length - 1 ? (
             <Button
               onClick={onContinue}
-              disabled={isPending || saveSucceeded}
+              disabled={isPending || saveSucceeded || flowBlocked}
               aria-busy={isPending}
             >
               Continue
@@ -290,7 +366,7 @@ export function QuestionnaireFlow() {
           ) : (
             <Button
               onClick={onSubmitQuestionnaire}
-              disabled={isPending || saveSucceeded}
+              disabled={isPending || saveSucceeded || flowBlocked}
               aria-busy={isPending}
             >
               {isPending ? "Submitting…" : "Submit questionnaire"}
@@ -300,7 +376,7 @@ export function QuestionnaireFlow() {
         <Button
           variant="ghost"
           className="w-full"
-          disabled={step === 0 || isPending || saveSucceeded}
+          disabled={step === 0 || isPending || saveSucceeded || flowBlocked}
           onClick={() => setStep((current) => Math.max(current - 1, 0))}
         >
           Back

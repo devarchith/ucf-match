@@ -1,38 +1,34 @@
 "use server";
 
 import { ZodError } from "zod";
+import { checkServerActionApiIdentity } from "@/lib/api/assert-action-identity";
+import { devBearerApiJson } from "@/lib/api/authenticated-server-client";
 import { AuthError } from "@/lib/auth";
+import {
+  blockCreatedWireSchema,
+  reportCreatedWireSchema,
+  type BlockCreatedWire,
+  type ReportCreatedWire
+} from "@/lib/api/contracts/reports-blocks";
+import {
+  mapDevBearerFailure,
+  unexpectedMappedActionFailure,
+  type MappedActionFailure
+} from "@/lib/api/map-dev-bearer-to-action";
 import { SERVER_ACTION_UNAUTHORIZED } from "@/lib/auth/action-auth";
 import { getServerUserId } from "@/lib/auth/server-user";
-import { SafetyServiceError, createBlock, createReport } from "@/lib/safety";
 import { blockInputSchema } from "@/lib/validation/block";
 import { reportInputSchema } from "@/lib/validation/report";
-import { type SerializedZodIssue, serializeZodIssues } from "@/lib/validation/zod-issues";
+import { serializeZodIssues } from "@/lib/validation/zod-issues";
 
-export type ReportActionResult =
-  | { ok: true; data: Awaited<ReturnType<typeof createReport>> }
-  | {
-      ok: false;
-      message: string;
-      issues?: SerializedZodIssue[];
-      code?: typeof SERVER_ACTION_UNAUTHORIZED;
-    };
+export type ReportActionResult = { ok: true; data: ReportCreatedWire } | MappedActionFailure;
 
-export type BlockActionResult =
-  | { ok: true; data: Awaited<ReturnType<typeof createBlock>> }
-  | {
-      ok: false;
-      message: string;
-      issues?: SerializedZodIssue[];
-      code?: typeof SERVER_ACTION_UNAUTHORIZED;
-    };
+export type BlockActionResult = { ok: true; data: BlockCreatedWire } | MappedActionFailure;
 
 export async function submitReportAction(payload: unknown): Promise<ReportActionResult> {
+  let userId: string;
   try {
-    const userId = await getServerUserId();
-    const input = reportInputSchema.parse(payload);
-    const data = await createReport(userId, input);
-    return { ok: true, data };
+    userId = await getServerUserId();
   } catch (error) {
     if (error instanceof AuthError) {
       return {
@@ -41,6 +37,18 @@ export async function submitReportAction(payload: unknown): Promise<ReportAction
         message: "You are not signed in."
       };
     }
+    return unexpectedMappedActionFailure(error);
+  }
+
+  const identityFailure = await checkServerActionApiIdentity(userId);
+  if (identityFailure) {
+    return identityFailure;
+  }
+
+  let input;
+  try {
+    input = reportInputSchema.parse(payload);
+  } catch (error) {
     if (error instanceof ZodError) {
       const issues = serializeZodIssues(error);
       return {
@@ -49,19 +57,26 @@ export async function submitReportAction(payload: unknown): Promise<ReportAction
         issues
       };
     }
-    if (error instanceof SafetyServiceError) {
-      return { ok: false, message: error.message };
-    }
-    return { ok: false, message: "Could not submit report. Try again." };
+    return unexpectedMappedActionFailure(error);
   }
+
+  const result = await devBearerApiJson(
+    "/api/reports",
+    { method: "POST", body: JSON.stringify(input) },
+    reportCreatedWireSchema
+  );
+
+  if (!result.ok) {
+    return mapDevBearerFailure(result);
+  }
+
+  return { ok: true, data: result.data };
 }
 
 export async function submitBlockAction(payload: unknown): Promise<BlockActionResult> {
+  let userId: string;
   try {
-    const userId = await getServerUserId();
-    const input = blockInputSchema.parse(payload);
-    const data = await createBlock(userId, input);
-    return { ok: true, data };
+    userId = await getServerUserId();
   } catch (error) {
     if (error instanceof AuthError) {
       return {
@@ -70,6 +85,18 @@ export async function submitBlockAction(payload: unknown): Promise<BlockActionRe
         message: "You are not signed in."
       };
     }
+    return unexpectedMappedActionFailure(error);
+  }
+
+  const identityFailure = await checkServerActionApiIdentity(userId);
+  if (identityFailure) {
+    return identityFailure;
+  }
+
+  let input;
+  try {
+    input = blockInputSchema.parse(payload);
+  } catch (error) {
     if (error instanceof ZodError) {
       const issues = serializeZodIssues(error);
       return {
@@ -78,9 +105,18 @@ export async function submitBlockAction(payload: unknown): Promise<BlockActionRe
         issues
       };
     }
-    if (error instanceof SafetyServiceError) {
-      return { ok: false, message: error.message };
-    }
-    return { ok: false, message: "Could not block user. Try again." };
+    return unexpectedMappedActionFailure(error);
   }
+
+  const result = await devBearerApiJson(
+    "/api/blocks",
+    { method: "POST", body: JSON.stringify(input) },
+    blockCreatedWireSchema
+  );
+
+  if (!result.ok) {
+    return mapDevBearerFailure(result);
+  }
+
+  return { ok: true, data: result.data };
 }

@@ -5,10 +5,19 @@ import { useRef, useState, useTransition } from "react";
 
 import { submitPreferencesAction } from "@/app/actions/preferences";
 import { ProgressSteps } from "@/components/progress-steps";
+import { SignedOutPrompt } from "@/components/signed-out-prompt";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
+import { isAuthMisconfiguredCode, isHttpErrorCode, isResponseIntegrityCode } from "@/lib/auth/action-failure-ui";
+import {
+  SERVER_ACTION_AUTH_IDENTITY_MISMATCH,
+  SERVER_ACTION_FORBIDDEN,
+  SERVER_ACTION_NETWORK_FAILURE,
+  SERVER_ACTION_UNAUTHORIZED
+} from "@/lib/auth/action-auth";
+import { serverActionFailureTitle } from "@/lib/auth/server-action-failure-copy";
 import { PreferencesDraft, PreferenceLevel, preferencesDraft, preferencesSteps } from "@/lib/mock/flows";
 import type { SerializedZodIssue } from "@/lib/validation/zod-issues";
 import { NETWORK_ERROR_MESSAGE } from "@/lib/validation/zod-issues";
@@ -41,12 +50,9 @@ const stepConfig: Array<{ field: PreferenceField; title: string; description: st
 
 function toPreferencesPayload(form: PreferencesDraft) {
   return {
-    preferredGenders: ["No preference"],
-    interests: [
-      `Campus area flexibility: ${form.campusAreaDistance}`,
-      `Meeting windows: ${form.meetingWindows}`
-    ],
-    communicationStyle: `Conversation pace: ${form.conversationPace}`
+    campusAreaDistance: form.campusAreaDistance,
+    conversationPace: form.conversationPace,
+    meetingWindows: form.meetingWindows
   };
 }
 
@@ -61,6 +67,12 @@ export function PreferencesFlow() {
   const [submitError, setSubmitError] = useState("");
   const [serverIssues, setServerIssues] = useState<SerializedZodIssue[]>([]);
   const [saveSucceeded, setSaveSucceeded] = useState(false);
+  const [signedOut, setSignedOut] = useState(false);
+  const [setupMessage, setSetupMessage] = useState("");
+  const [unexpectedApi, setUnexpectedApi] = useState<{ title: string; message: string } | null>(null);
+  const [identityMismatchMessage, setIdentityMismatchMessage] = useState("");
+  const [forbiddenMessage, setForbiddenMessage] = useState("");
+  const [submitErrorTitle, setSubmitErrorTitle] = useState("Could not save preferences");
 
   const active = stepConfig[step];
   const activeValue = form[active.field];
@@ -70,6 +82,11 @@ export function PreferencesFlow() {
     setSaveSucceeded(false);
     setError("");
     setSubmitError("");
+    setSubmitErrorTitle("Could not save preferences");
+    setSetupMessage("");
+    setUnexpectedApi(null);
+    setIdentityMismatchMessage("");
+    setForbiddenMessage("");
     setServerIssues([]);
     setForm((prev) => ({ ...prev, [active.field]: value }));
   };
@@ -93,6 +110,11 @@ export function PreferencesFlow() {
     if (!validateStep()) return;
     submitGuard.current = true;
     setSubmitError("");
+    setSubmitErrorTitle("Could not save preferences");
+    setSetupMessage("");
+    setUnexpectedApi(null);
+    setIdentityMismatchMessage("");
+    setForbiddenMessage("");
     setServerIssues([]);
     setSaveSucceeded(false);
     startTransition(async () => {
@@ -100,9 +122,41 @@ export function PreferencesFlow() {
         const result = await submitPreferencesAction(toPreferencesPayload(form));
         if (!result.ok) {
           submitGuard.current = false;
+          if (result.code === SERVER_ACTION_UNAUTHORIZED) {
+            setSignedOut(true);
+            return;
+          }
+          if (result.code === SERVER_ACTION_AUTH_IDENTITY_MISMATCH) {
+            setIdentityMismatchMessage(result.message);
+            return;
+          }
+          if (isAuthMisconfiguredCode(result.code)) {
+            setSetupMessage(result.message);
+            return;
+          }
+          if (isResponseIntegrityCode(result.code) || isHttpErrorCode(result.code)) {
+            setUnexpectedApi({
+              title: serverActionFailureTitle(result.code),
+              message: result.message
+            });
+            return;
+          }
+          if (result.code === SERVER_ACTION_NETWORK_FAILURE) {
+            setSubmitErrorTitle(serverActionFailureTitle(result.code));
+            setSubmitError(result.message);
+            return;
+          }
+          if (result.code === SERVER_ACTION_FORBIDDEN) {
+            setForbiddenMessage(
+              result.message ||
+                "Saving preferences requires a verified UCF email. Complete email verification, then try again."
+            );
+            return;
+          }
           if (result.issues?.length) {
             setServerIssues(result.issues);
           }
+          setSubmitErrorTitle(serverActionFailureTitle(result.code));
           setSubmitError(result.message);
           return;
         }
@@ -118,7 +172,19 @@ export function PreferencesFlow() {
     });
   };
 
-  const showBulkError = Boolean(submitError) && serverIssues.length === 0;
+  const showBulkError =
+    Boolean(submitError) &&
+    serverIssues.length === 0 &&
+    !setupMessage &&
+    !unexpectedApi &&
+    !identityMismatchMessage &&
+    !forbiddenMessage;
+
+  if (signedOut) {
+    return <SignedOutPrompt />;
+  }
+
+  const flowBlocked = Boolean(identityMismatchMessage);
 
   return (
     <Card>
@@ -137,6 +203,34 @@ export function PreferencesFlow() {
           </Alert>
         ) : null}
 
+        {setupMessage ? (
+          <Alert>
+            <AlertTitle>API setup required</AlertTitle>
+            <AlertDescription>{setupMessage}</AlertDescription>
+          </Alert>
+        ) : null}
+
+        {unexpectedApi ? (
+          <Alert variant="destructive">
+            <AlertTitle>{unexpectedApi.title}</AlertTitle>
+            <AlertDescription>{unexpectedApi.message}</AlertDescription>
+          </Alert>
+        ) : null}
+
+        {identityMismatchMessage ? (
+          <Alert variant="destructive">
+            <AlertTitle>Session mismatch</AlertTitle>
+            <AlertDescription>{identityMismatchMessage}</AlertDescription>
+          </Alert>
+        ) : null}
+
+        {forbiddenMessage ? (
+          <Alert variant="destructive">
+            <AlertTitle>Not allowed to save preferences</AlertTitle>
+            <AlertDescription>{forbiddenMessage}</AlertDescription>
+          </Alert>
+        ) : null}
+
         {serverIssues.length > 0 ? (
           <div className="space-y-1" role="status">
             {serverIssues.map((issue, i) => (
@@ -150,7 +244,7 @@ export function PreferencesFlow() {
 
         {showBulkError ? (
           <Alert variant="destructive">
-            <AlertTitle>Could not save preferences</AlertTitle>
+            <AlertTitle>{submitErrorTitle}</AlertTitle>
             <AlertDescription>{submitError}</AlertDescription>
           </Alert>
         ) : null}
@@ -170,7 +264,7 @@ export function PreferencesFlow() {
                   type="button"
                   role="radio"
                   aria-checked={selected}
-                  disabled={isPending || saveSucceeded}
+                  disabled={isPending || saveSucceeded || flowBlocked}
                   className={`rounded-md border px-3 py-2 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-45 disabled:saturate-50 ${
                     selected ? "border-primary bg-primary/5 font-medium" : "hover:bg-secondary"
                   }`}
@@ -191,13 +285,13 @@ export function PreferencesFlow() {
         {saved ? <p className="text-xs text-muted-foreground">Draft saved locally for this session.</p> : null}
 
         <div className="grid grid-cols-2 gap-2">
-          <Button variant="outline" onClick={() => setSaved(true)} disabled={isPending || saveSucceeded}>
+          <Button variant="outline" onClick={() => setSaved(true)} disabled={isPending || saveSucceeded || flowBlocked}>
             Save draft
           </Button>
           {step < preferencesSteps.length - 1 ? (
             <Button
               onClick={onContinue}
-              disabled={isPending || saveSucceeded}
+              disabled={isPending || saveSucceeded || flowBlocked}
               aria-busy={isPending}
             >
               Continue
@@ -205,7 +299,7 @@ export function PreferencesFlow() {
           ) : (
             <Button
               onClick={onFinishPreferences}
-              disabled={isPending || saveSucceeded}
+              disabled={isPending || saveSucceeded || flowBlocked}
               aria-busy={isPending}
             >
               {isPending ? "Saving…" : "Finish preferences"}
@@ -215,7 +309,7 @@ export function PreferencesFlow() {
         <Button
           variant="ghost"
           className="w-full"
-          disabled={step === 0 || isPending || saveSucceeded}
+          disabled={step === 0 || isPending || saveSucceeded || flowBlocked}
           onClick={() => {
             setError("");
             setStep((current) => Math.max(current - 1, 0));

@@ -1,10 +1,12 @@
 "use server";
 
-import { ZodError } from "zod";
-import { AuthError } from "@/lib/auth";
 import { checkServerActionApiIdentity } from "@/lib/api/assert-action-identity";
 import { devBearerApiJson } from "@/lib/api/authenticated-server-client";
-import { profileWireSchema, type ProfileWire } from "@/lib/api/contracts/profile";
+import { AuthError } from "@/lib/auth";
+import {
+  weeklyMatchUpdatedWireSchema,
+  type WeeklyMatchUpdatedWire
+} from "@/lib/api/contracts/match-response";
 import {
   mapDevBearerFailure,
   unexpectedMappedActionFailure,
@@ -12,12 +14,17 @@ import {
 } from "@/lib/api/map-dev-bearer-to-action";
 import { SERVER_ACTION_UNAUTHORIZED } from "@/lib/auth/action-auth";
 import { getServerUserId } from "@/lib/auth/server-user";
-import { profileInputSchema } from "@/lib/validation/profile";
-import { serializeZodIssues } from "@/lib/validation/zod-issues";
+import type { SerializedZodIssue } from "@/lib/validation/zod-issues";
 
-export type ProfileActionResult = { ok: true; data: ProfileWire } | MappedActionFailure;
+export type MatchResponseActionResult =
+  | { ok: true; data: WeeklyMatchUpdatedWire }
+  | MappedActionFailure
+  | { ok: false; message: string; issues?: SerializedZodIssue[] };
 
-export async function submitProfileAction(payload: unknown): Promise<ProfileActionResult> {
+export async function submitMatchResponseAction(
+  matchId: string,
+  response: "ACCEPTED" | "DECLINED"
+): Promise<MatchResponseActionResult> {
   let userId: string;
   try {
     userId = await getServerUserId();
@@ -37,22 +44,19 @@ export async function submitProfileAction(payload: unknown): Promise<ProfileActi
     return identityFailure;
   }
 
-  let input;
-  try {
-    input = profileInputSchema.parse(payload);
-  } catch (error) {
-    if (error instanceof ZodError) {
-      const issues = serializeZodIssues(error);
-      return {
-        ok: false,
-        message: issues[0]?.message ?? "Invalid profile data.",
-        issues
-      };
-    }
-    return unexpectedMappedActionFailure(error);
+  const trimmed = matchId.trim();
+  if (!trimmed) {
+    return { ok: false, message: "Match id is required." };
   }
 
-  const result = await devBearerApiJson("/api/profile", { method: "PUT", body: JSON.stringify(input) }, profileWireSchema);
+  const result = await devBearerApiJson(
+    `/api/matches/${encodeURIComponent(trimmed)}/response`,
+    {
+      method: "POST",
+      body: JSON.stringify({ response })
+    },
+    weeklyMatchUpdatedWireSchema
+  );
 
   if (!result.ok) {
     return mapDevBearerFailure(result);

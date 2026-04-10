@@ -4,8 +4,8 @@ import { AppShell } from "@/components/app-shell";
 import { PageStateGate } from "@/components/page-state-gate";
 import { SignedOutPrompt } from "@/components/signed-out-prompt";
 import { TopNav } from "@/components/top-nav";
+import { loadWeekPageContext } from "@/lib/api/rsc-auth-context";
 import { resolveServerSession } from "@/lib/auth/server-user";
-import { getCurrentWeekStatus } from "@/lib/week";
 
 import { WeeklyOptInForm } from "./weekly-opt-in-form";
 
@@ -22,34 +22,36 @@ export default async function WeeklyOptInPage() {
     );
   }
 
-  try {
-    const status = await getCurrentWeekStatus(session.userId);
-    const participationStatus = status.participation
-      ? status.participation.status
-      : ParticipationStatus.OPTED_OUT;
-
-    return (
-      <AppShell title="Weekly opt-in" subtitle="Confirm you want to be considered in this week’s batch.">
-        <TopNav pathname="/weekly-opt-in" />
-        <WeeklyOptInForm
-          weekLabel={status.week?.label ?? null}
-          noActiveWeek={!status.week}
-          canOptIn={status.canOptIn}
-          eligibilityReason={status.reason}
-          participationStatus={participationStatus}
-        />
-      </AppShell>
-    );
-  } catch {
+  const ctx = await loadWeekPageContext(session.userId);
+  if (!ctx.ok) {
     return (
       <AppShell title="Weekly opt-in" subtitle="Confirm you want to be considered in this week’s batch.">
         <TopNav pathname="/weekly-opt-in" />
         <PageStateGate
           viewState="error"
-          errorDescription="We could not load weekly status. Please try again."
+          errorTitle={ctx.failure.title}
+          errorDescription={ctx.failure.description}
           ready={null}
         />
       </AppShell>
     );
   }
+
+  const status = ctx.week;
+  const participationStatus = status.participation
+    ? status.participation.status
+    : ParticipationStatus.OPTED_OUT;
+
+  return (
+    <AppShell title="Weekly opt-in" subtitle="Confirm you want to be considered in this week’s batch.">
+      <TopNav pathname="/weekly-opt-in" />
+      <WeeklyOptInForm
+        weekLabel={status.week?.label ?? null}
+        noActiveWeek={!status.week}
+        canOptIn={status.canOptIn}
+        eligibilityReason={status.reason}
+        participationStatus={participationStatus}
+      />
+    </AppShell>
+  );
 }

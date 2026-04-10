@@ -9,6 +9,7 @@ type PageStateGateProps = {
   loadingTitle?: string;
   emptyTitle?: string;
   emptyDescription?: string;
+  errorTitle?: string;
   errorDescription?: string;
 };
 
@@ -18,10 +19,12 @@ export function PageStateGate({
   loadingTitle = "Loading...",
   emptyTitle = "Nothing to show yet",
   emptyDescription = "This section is currently empty.",
+  errorTitle,
   errorDescription = "We could not load this page state."
 }: PageStateGateProps) {
   if (viewState === "loading") return <LoadingState title={loadingTitle} />;
   if (viewState === "empty") return <EmptyState title={emptyTitle} description={emptyDescription} />;
-  if (viewState === "error") return <ErrorState description={errorDescription} />;
+  if (viewState === "error")
+    return <ErrorState title={errorTitle} description={errorDescription} />;
   return <>{ready}</>;
 }

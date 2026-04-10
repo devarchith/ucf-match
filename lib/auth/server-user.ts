@@ -2,7 +2,8 @@ import "server-only";
 
 import { AuthError } from "@/lib/auth";
 
-function resolveAuthModeForServer(): "dev" | "provider" {
+/** Same resolution as app auth: explicit AUTH_MODE, else dev in NODE_ENV=development, else provider. */
+export function resolveAuthModeForServer(): "dev" | "provider" {
   const explicit = process.env.AUTH_MODE;
   if (explicit === "dev" || explicit === "provider") {
     return explicit;

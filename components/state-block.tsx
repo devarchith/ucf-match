@@ -29,11 +29,17 @@ export function EmptyState({ title, description }: { title: string; description:
   );
 }
 
-export function ErrorState({ description }: { description: string }) {
+export function ErrorState({
+  title = "Something went wrong",
+  description
+}: {
+  title?: string;
+  description: string;
+}) {
   return (
     <Alert variant="destructive">
       <AlertCircle className="h-4 w-4" />
-      <AlertTitle>Something went wrong</AlertTitle>
+      <AlertTitle>{title}</AlertTitle>
       <AlertDescription>{description}</AlertDescription>
     </Alert>
   );

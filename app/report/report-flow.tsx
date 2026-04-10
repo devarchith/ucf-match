@@ -13,7 +13,12 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { SERVER_ACTION_UNAUTHORIZED } from "@/lib/auth/action-auth";
+import { isAuthMisconfiguredCode, isHttpErrorCode, isResponseIntegrityCode } from "@/lib/auth/action-failure-ui";
+import { SERVER_ACTION_AUTH_IDENTITY_MISMATCH, SERVER_ACTION_UNAUTHORIZED } from "@/lib/auth/action-auth";
+import {
+  presentClientThrownActionFailure,
+  serverActionFailureTitle
+} from "@/lib/auth/server-action-failure-copy";
 import { normalizeEntryPoint } from "@/lib/safety/entry-point";
 import { reportReasonOptions } from "@/lib/safety/report-reasons";
 import type { ViewState } from "@/lib/types/ui-state";
@@ -31,6 +36,10 @@ export function ReportFlow() {
   const [details, setDetails] = useState("");
   const [isPending, startTransition] = useTransition();
   const [submitError, setSubmitError] = useState("");
+  const [submitErrorTitle, setSubmitErrorTitle] = useState("Could not submit report");
+  const [setupMessage, setSetupMessage] = useState("");
+  const [unexpectedApi, setUnexpectedApi] = useState<{ title: string; message: string } | null>(null);
+  const [identityMismatchMessage, setIdentityMismatchMessage] = useState("");
   const [serverPaths, setServerPaths] = useState<Record<string, string>>({});
   const [signedOut, setSignedOut] = useState(false);
   const [done, setDone] = useState(false);
@@ -41,6 +50,10 @@ export function ReportFlow() {
     if (submitGuard.current || isPending || !selectedReason) return;
     submitGuard.current = true;
     setSubmitError("");
+    setSubmitErrorTitle("Could not submit report");
+    setSetupMessage("");
+    setUnexpectedApi(null);
+    setIdentityMismatchMessage("");
     setServerPaths({});
     setSignedOut(false);
     startTransition(async () => {
@@ -57,16 +70,34 @@ export function ReportFlow() {
             setSignedOut(true);
             return;
           }
+          if (result.code === SERVER_ACTION_AUTH_IDENTITY_MISMATCH) {
+            setIdentityMismatchMessage(result.message);
+            return;
+          }
+          if (isAuthMisconfiguredCode(result.code)) {
+            setSetupMessage(result.message);
+            return;
+          }
+          if (isResponseIntegrityCode(result.code) || isHttpErrorCode(result.code)) {
+            setUnexpectedApi({
+              title: serverActionFailureTitle(result.code),
+              message: result.message
+            });
+            return;
+          }
           if (result.issues?.length) {
             setServerPaths(issuesByPath(result.issues));
           }
+          setSubmitErrorTitle(serverActionFailureTitle(result.code));
           setSubmitError(result.message);
           return;
         }
         setDone(true);
-      } catch {
+      } catch (e) {
         submitGuard.current = false;
-        setSubmitError(NETWORK_ERROR_MESSAGE);
+        const { title, message } = presentClientThrownActionFailure(e);
+        setSubmitErrorTitle(title);
+        setSubmitError(message);
       }
     });
   };
@@ -79,7 +110,14 @@ export function ReportFlow() {
   const zDetails = serverPaths.details;
   const zReported = serverPaths.reportedUserId;
   const zMatch = serverPaths.matchId;
-  const showBulkError = Boolean(submitError) && Object.keys(serverPaths).length === 0;
+  const showBulkError =
+    Boolean(submitError) &&
+    Object.keys(serverPaths).length === 0 &&
+    !setupMessage &&
+    !unexpectedApi &&
+    !identityMismatchMessage;
+
+  const flowBlocked = Boolean(identityMismatchMessage);
 
   return (
     <PageStateGate
@@ -115,9 +153,30 @@ export function ReportFlow() {
               {zReported ? <p className="text-xs text-destructive">{zReported}</p> : null}
               {zMatch ? <p className="text-xs text-destructive">{zMatch}</p> : null}
 
+              {setupMessage ? (
+                <Alert>
+                  <AlertTitle>API setup required</AlertTitle>
+                  <AlertDescription>{setupMessage}</AlertDescription>
+                </Alert>
+              ) : null}
+
+              {unexpectedApi ? (
+                <Alert variant="destructive">
+                  <AlertTitle>{unexpectedApi.title}</AlertTitle>
+                  <AlertDescription>{unexpectedApi.message}</AlertDescription>
+                </Alert>
+              ) : null}
+
+              {identityMismatchMessage ? (
+                <Alert variant="destructive">
+                  <AlertTitle>Session mismatch</AlertTitle>
+                  <AlertDescription>{identityMismatchMessage}</AlertDescription>
+                </Alert>
+              ) : null}
+
               {showBulkError ? (
                 <Alert variant="destructive">
-                  <AlertTitle>Could not submit report</AlertTitle>
+                  <AlertTitle>{submitErrorTitle}</AlertTitle>
                   <AlertDescription>{submitError}</AlertDescription>
                 </Alert>
               ) : null}
@@ -132,7 +191,7 @@ export function ReportFlow() {
                       className="mt-0.5"
                       value={reason.id}
                       checked={selectedReason === reason.id}
-                      disabled={isPending}
+                      disabled={isPending || flowBlocked}
                       onChange={() => {
                         setSelectedReason(reason.id);
                         setServerPaths((p) => {
@@ -154,7 +213,7 @@ export function ReportFlow() {
                   id="details"
                   placeholder="Add short context if needed."
                   value={details}
-                  disabled={isPending}
+                  disabled={isPending || flowBlocked}
                   onChange={(e) => {
                     setDetails(e.target.value);
                     setServerPaths((p) => {
@@ -175,7 +234,7 @@ export function ReportFlow() {
               <ResponsiveActionRow>
                 <Button
                   variant="destructive"
-                  disabled={!selectedReason || isPending}
+                  disabled={!selectedReason || isPending || flowBlocked}
                   onClick={onSubmit}
                   aria-busy={isPending}
                 >

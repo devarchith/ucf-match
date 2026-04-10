@@ -11,7 +11,12 @@ import { SignedOutPrompt } from "@/components/signed-out-prompt";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { SERVER_ACTION_UNAUTHORIZED } from "@/lib/auth/action-auth";
+import { isAuthMisconfiguredCode, isHttpErrorCode, isResponseIntegrityCode } from "@/lib/auth/action-failure-ui";
+import { SERVER_ACTION_AUTH_IDENTITY_MISMATCH, SERVER_ACTION_UNAUTHORIZED } from "@/lib/auth/action-auth";
+import {
+  presentClientThrownActionFailure,
+  serverActionFailureTitle
+} from "@/lib/auth/server-action-failure-copy";
 import { normalizeEntryPoint } from "@/lib/safety/entry-point";
 import type { ViewState } from "@/lib/types/ui-state";
 import { issuesByPath, NETWORK_ERROR_MESSAGE } from "@/lib/validation/zod-issues";
@@ -25,6 +30,10 @@ export function BlockFlow() {
   const [confirmed, setConfirmed] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [submitError, setSubmitError] = useState("");
+  const [submitErrorTitle, setSubmitErrorTitle] = useState("Could not block user");
+  const [setupMessage, setSetupMessage] = useState("");
+  const [unexpectedApi, setUnexpectedApi] = useState<{ title: string; message: string } | null>(null);
+  const [identityMismatchMessage, setIdentityMismatchMessage] = useState("");
   const [serverPaths, setServerPaths] = useState<Record<string, string>>({});
   const [signedOut, setSignedOut] = useState(false);
   const [done, setDone] = useState(false);
@@ -35,6 +44,10 @@ export function BlockFlow() {
     if (submitGuard.current || isPending || !confirmed) return;
     submitGuard.current = true;
     setSubmitError("");
+    setSubmitErrorTitle("Could not block user");
+    setSetupMessage("");
+    setUnexpectedApi(null);
+    setIdentityMismatchMessage("");
     setServerPaths({});
     setSignedOut(false);
     startTransition(async () => {
@@ -46,16 +59,34 @@ export function BlockFlow() {
             setSignedOut(true);
             return;
           }
+          if (result.code === SERVER_ACTION_AUTH_IDENTITY_MISMATCH) {
+            setIdentityMismatchMessage(result.message);
+            return;
+          }
+          if (isAuthMisconfiguredCode(result.code)) {
+            setSetupMessage(result.message);
+            return;
+          }
+          if (isResponseIntegrityCode(result.code) || isHttpErrorCode(result.code)) {
+            setUnexpectedApi({
+              title: serverActionFailureTitle(result.code),
+              message: result.message
+            });
+            return;
+          }
           if (result.issues?.length) {
             setServerPaths(issuesByPath(result.issues));
           }
+          setSubmitErrorTitle(serverActionFailureTitle(result.code));
           setSubmitError(result.message);
           return;
         }
         setDone(true);
-      } catch {
+      } catch (e) {
         submitGuard.current = false;
-        setSubmitError(NETWORK_ERROR_MESSAGE);
+        const { title, message } = presentClientThrownActionFailure(e);
+        setSubmitErrorTitle(title);
+        setSubmitError(message);
       }
     });
   };
@@ -65,7 +96,14 @@ export function BlockFlow() {
   }
 
   const zBlocked = serverPaths.blockedUserId;
-  const showBulkError = Boolean(submitError) && Object.keys(serverPaths).length === 0;
+  const showBulkError =
+    Boolean(submitError) &&
+    Object.keys(serverPaths).length === 0 &&
+    !setupMessage &&
+    !unexpectedApi &&
+    !identityMismatchMessage;
+
+  const flowBlocked = Boolean(identityMismatchMessage);
 
   return (
     <PageStateGate
@@ -105,9 +143,30 @@ export function BlockFlow() {
 
               {zBlocked ? <p className="text-xs text-destructive">{zBlocked}</p> : null}
 
+              {setupMessage ? (
+                <Alert>
+                  <AlertTitle>API setup required</AlertTitle>
+                  <AlertDescription>{setupMessage}</AlertDescription>
+                </Alert>
+              ) : null}
+
+              {unexpectedApi ? (
+                <Alert variant="destructive">
+                  <AlertTitle>{unexpectedApi.title}</AlertTitle>
+                  <AlertDescription>{unexpectedApi.message}</AlertDescription>
+                </Alert>
+              ) : null}
+
+              {identityMismatchMessage ? (
+                <Alert variant="destructive">
+                  <AlertTitle>Session mismatch</AlertTitle>
+                  <AlertDescription>{identityMismatchMessage}</AlertDescription>
+                </Alert>
+              ) : null}
+
               {showBulkError ? (
                 <Alert variant="destructive">
-                  <AlertTitle>Could not block user</AlertTitle>
+                  <AlertTitle>{submitErrorTitle}</AlertTitle>
                   <AlertDescription>{submitError}</AlertDescription>
                 </Alert>
               ) : null}
@@ -117,7 +176,7 @@ export function BlockFlow() {
                   type="checkbox"
                   className="mt-0.5"
                   checked={confirmed}
-                  disabled={isPending}
+                  disabled={isPending || flowBlocked}
                   onChange={(e) => {
                     setConfirmed(e.target.checked);
                     setServerPaths((p) => {
@@ -132,7 +191,7 @@ export function BlockFlow() {
               <ResponsiveActionRow>
                 <Button
                   variant="destructive"
-                  disabled={!confirmed || isPending}
+                  disabled={!confirmed || isPending || flowBlocked}
                   onClick={onConfirm}
                   aria-busy={isPending}
                 >
