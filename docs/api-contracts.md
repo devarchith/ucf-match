@@ -90,6 +90,18 @@
       - When `week` is non-null and the user has no participation row yet, `participation` is a synthetic object with `status: "OPTED_OUT"` and `id` / `optedInAt` / `updatedAt` set to `null` (same shape as a persisted row).
     - `canOptIn: boolean`
     - `reason: string | null` — when the user cannot opt in (`canOptIn` false), explains why; when they can opt in, `null`. If there is no active week, `reason` is `"No active week."` and `canOptIn` is false.
+    - `activeMatch` — **always present** on `200 OK` (never omitted). Type is `null` or an object (see below).
+      - When `week` is `null`, `activeMatch` is always `null`.
+      - When `week` is non-null, `activeMatch` is **`null`** unless **all** of the following are true: the user has a persisted participation row for that week (`participation.id` is non-null), `participation.status` is `MATCHED`, there exists a `Match` for that week in status `PENDING` or `ACTIVE` that includes this participation, and the matched other user’s profile has a non-empty `firstName`. Otherwise `activeMatch` is **`null`** (e.g. `OPTED_IN` / `OPTED_OUT`, synthetic participation without a row, missing match row, or missing peer `firstName`).
+      - When non-null, shape is:
+        - `matchId: string`
+        - `otherUserId: string`
+        - `firstName: string`
+        - `major: string | null`
+        - `bio: string | null`
+        - `graduationYear: number | null`
+        - `sharedInterests: string[]`
+        - `compatibilityReasons: string[]` (server-generated strings, capped to three items)
 
 - `PUT /api/weeks/current/opt-in`
   - Response `200 OK`

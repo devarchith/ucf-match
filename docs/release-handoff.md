@@ -8,22 +8,20 @@
 
 ## MVP ship summary
 
-- **Release validation status:** This branch is **ready for release validation** (review, manual smoke, and **required CI / merge gates**—not a statement that merge is already approved). At the time of this handoff, **no code-level release blockers** were found in the scope reviewed below.
-- **Local checks (non-authoritative):** **`npm run typecheck`** and **`npm run test:fast`** pass on this branch. They are **useful pre-merge signals only**; they are **not** the authoritative release gate. **Final merge still depends on** your **required CI pipeline** (or equivalent org gates) and **manual smoke** as defined by the team.
+- **Release validation status:** This branch is **ready for release validation** (review and manual smoke—not a statement that merge is already approved). At the time of this handoff, **no code-level release blockers** were found in the scope reviewed below.
+- **Local checks (non-authoritative):** **`npm run typecheck`** and **`npm run test:fast`** pass on this branch. They are **useful pre-merge signals only**, not a substitute for release validation. **Final merge still depends on manual smoke** and **any team-required merge gates** (branch protection and required checks are configured in GitHub, not in this repo; this repo defines workflows under `.github/workflows/`).
 - **Goal:** Ship the integrated UI that calls existing Next.js route handlers (dev bearer in development) with truthful loading/error states, without changing auth policy or matching/safety **enforcement** rules in the safety/matching layers.
-- **HTTP response shape (explicit):** `GET /api/weeks/current` **does** include an **additive, non-breaking** top-level field **`activeMatch`** (preview when the user is `MATCHED` and data resolves). Existing fields keep prior semantics; this extends the JSON body. Strict clients must accept unknown properties or be updated to read `activeMatch`.
-- **Documentation drift (not a release blocker):** `docs/api-contracts.md` has **not** been updated to list **`activeMatch`**. That is **contract doc drift only**—track as a follow-up; it does **not** block MVP merge on its own if product accepts additive responses, **subject to** CI and smoke above.
+- **`GET /api/weeks/current` and `activeMatch` (matches implementation):** The handler returns `getCurrentWeekStatus()` JSON as-is. **`activeMatch` is always a top-level key** on success (`null` or a preview object). It is **non-null** only when there is an active week, the user’s participation is persisted with `status === "MATCHED"`, a `PENDING` or `ACTIVE` match exists for that participation, and the matched peer has a profile with a non-empty `firstName`; otherwise **`activeMatch` is `null`**. See **`docs/api-contracts.md`** for the full field list.
 
 ## Ship verdict
 
 | Item | Status |
 |------|--------|
-| **READY / NOT READY** | **Ready for release validation** — no **code-level** release blockers found in this handoff’s scope; **merge approval** still requires **required CI** and **manual smoke** (and normal review). |
+| **READY / NOT READY** | **Ready for release validation** — no **code-level** release blockers found in this handoff’s scope; **merge** still depends on **manual smoke**, **any team-required merge gates**, and normal review. |
 | **Blocking issues** | **None found** in the reviewed scope. (API response for `/api/weeks/current` **was** extended with **`activeMatch`**; see above—that is additive and non-breaking, not a blocker.) |
 
 ## Obvious release risks (observed, not speculative)
 
-- **`docs/api-contracts.md` lags the wire format** for `GET /api/weeks/current` (missing **`activeMatch`**). This is **documentation drift**, not a release blocker, if stakeholders agree additive JSON is acceptable for MVP.
 - **Scope:** This branch touches many files (UI + new `app/actions/*` + API client helpers). If `main` moved elsewhere, rebase/merge and re-run checks before merge.
 
 ## Manual smoke checklist (local)
@@ -45,32 +43,29 @@ Prerequisites: Postgres `DATABASE_URL`, `npx prisma db push`, `npm run db:seed`,
 - **Action failure classification:** `presentClientThrownActionFailure` heuristics (network vs generic).
 - **Server/client alignment:** `getServerUserId()` ordering vs parallel dashboard fetch; sessionStorage vs server truth on reload (e.g. match responded).
 - **Taxonomy cleanup:** `unexpected` vs `failureClass: "unknown"`.
-- **Documentation:** Add `activeMatch` to `docs/api-contracts.md` for `GET /api/weeks/current`.
-
 ## PR description (paste into GitHub)
 
 ```markdown
 ## Summary
 Proposes merging **`ven/ui-shells`** into **`main`**: MVP frontend integration (server actions, authenticated flows, dashboard/match/opt-in/report/block UX).
 
-**Status:** This branch is **ready for release validation** (review + checks below)—**not** a claim that merge is pre-approved. **No code-level release blockers** were found in the handoff review. **Local** `npm run typecheck` and `npm run test:fast` passed at handoff time; they are **not** the authoritative merge gate—**final merge still depends on required CI** and **manual smoke** per team process.
+**Status:** This branch is **ready for release validation**—**not** a claim that merge is pre-approved. **No code-level release blockers** were found in the handoff review scope. **Local** `npm run typecheck` and `npm run test:fast` passed at handoff time; they are **non-authoritative** pre-merge signals only. **Final merge still depends on manual smoke** and **any team-required merge gates** (this repo includes `.github/workflows/`; required checks and branch protection are GitHub settings).
 
 ## Branch / API notes
 - **`ven/ui-shells` fully contains `main`** (nothing on `main` that is not already on this branch).
-- **`GET /api/weeks/current`** response JSON includes an **additive, non-breaking** top-level field **`activeMatch`** (match preview when the user is `MATCHED`). This **is** a response shape extension on that route; it does not remove or rename existing fields. **`docs/api-contracts.md` has not been updated**—that is **documentation drift only**, **not** treated as a release blocker for MVP.
+- **`GET /api/weeks/current`:** **`activeMatch`** is **always present** on `200 OK` (`null` or a preview object). Non-null only when there is an active week, participation is persisted with **`MATCHED`**, a **`PENDING` or `ACTIVE`** match exists for that participation, and the peer profile has a non-empty **`firstName`**. See **`docs/api-contracts.md`**.
 - **`dev` is redundant if it matches `main`** (same tip). Consider deleting **`dev`** or fast-forwarding it to **`main`** after merge to avoid a duplicate integration branch.
 
 ## Testing / merge gates
-- [ ] **Required CI** (or org-defined merge gates) **green**
 - [ ] **Manual smoke** (`docs/release-handoff.md` checklist)
-- [ ] (Optional local checks) `npm run typecheck`, `npm run test:fast` — pre-merge signals only
+- [ ] **Any team-required merge gates** (e.g. required checks on the PR—configure in GitHub)
+- [ ] (Optional local) `npm run typecheck`, `npm run test:fast` — pre-merge signals only
 
 ## Deferred (post-merge, non-release)
 - RSC / client error boundary consistency
 - Action failure classification accuracy
 - Server vs client state on reload (match response)
 - Error taxonomy cleanup
-- Update `docs/api-contracts.md` for **`activeMatch`** on `GET /api/weeks/current`
 
 ## Risk / monitoring
 - Auth mismatch edge cases
