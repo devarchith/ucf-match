@@ -2,74 +2,88 @@
 
 ## Branch state (vs `main`)
 
-- **`ven/ui-shells` fully contains `main`:** every commit on `main` is present on this branch; **`main` has no commits that are not already on `ven/ui-shells`**. Merging this branch into `main` is a fast-forward from `main`’s perspective once it lands.
-- **`ven/ui-shells` is ahead of `main`** by commits that add frontend integration (server actions, RSC data loading, auth-aware flows) and server support for the match UI.
-- **`dev` is redundant if it matches `main`** (same tip SHA). In that case it is a duplicate integration line unless you rely on it for workflow. After merge, **delete `dev`** or **reset `dev` to `main`**—team preference.
+- **Subset check (git, re-verify before merge):** `main` is an ancestor of this branch tip, and `git log HEAD..main` is empty—so **every commit on `main` is on `ven/ui-shells`**. If `main` gains commits elsewhere, re-run those commands.
+- **`ven/ui-shells` is ahead of `main`** until merged (`git log main..HEAD` non-empty).
+- **`dev`:** redundant **only when** its tip commit equals `main`’s tip. **Re-verify** with `git rev-parse main dev` (or `origin/dev`) on your clone.
 
-## MVP ship summary
+## What this document is
 
-- **Release validation status:** This branch is **ready for release validation** (review and manual smoke—not a statement that merge is already approved). At the time of this handoff, **no code-level release blockers** were found in the scope reviewed below.
-- **Local checks (non-authoritative):** At the time of the last documentation update on this branch, **`npm run typecheck`** and **`npm run test:fast`** **passed**. Re-run before merge; they are **not** authoritative for release. **Final merge still depends on manual smoke** and **any team-required merge gates** (this repo ships workflow files under `.github/workflows/`; branch protection and required checks are GitHub settings, not stored here).
-- **Goal:** Ship the integrated UI that calls existing Next.js route handlers (dev bearer in development) with truthful loading/error states, without changing auth policy or matching/safety **enforcement** rules in the safety/matching layers.
-- **`GET /api/weeks/current` and `activeMatch` (matches implementation):** The handler returns `getCurrentWeekStatus()` JSON as-is. **`activeMatch` is always a top-level key** on success (`null` or a preview object). It is **non-null** only when there is an active week, the user’s participation is persisted with `status === "MATCHED"`, a `PENDING` or `ACTIVE` match exists for that participation, and the matched peer has a profile with a non-empty `firstName`; otherwise **`activeMatch` is `null`**. See **`docs/api-contracts.md`** for the full field list.
+- A **checklist and pointers**, not merge approval, not a code review record, not proof of production readiness.
 
-## Ship verdict
+## Automated commands (local, this repo)
 
-| Item | Status |
-|------|--------|
-| **READY / NOT READY** | **Ready for release validation** — no **code-level** release blockers found in this handoff’s scope; **merge** still depends on **manual smoke**, **any team-required merge gates**, and normal review. |
-| **Blocking issues** | **None found** in the reviewed scope. (API response for `/api/weeks/current` **was** extended with **`activeMatch`**; see above—that is additive and non-breaking, not a blocker.) |
+- **Falsification pass:** **`npm run typecheck`** and **`npm run test:fast`** each exited **0** when last run for this doc revision (same working tree). **Re-run** on the merge candidate commit; exit codes depend on machine and state.
+- Those scripts are **not** defined in this file as the only or mandatory release gate (`package.json` lists other scripts; see workflow file below).
 
-## Obvious release risks (observed, not speculative)
+## GitHub Actions (file in repo only)
 
-- **Scope:** This branch touches many files (UI + new `app/actions/*` + API client helpers). If `main` moved elsewhere, rebase/merge and re-run checks before merge.
+- **`.github/workflows/ci.yml`** triggers on **`pull_request`** and on **push to `main`**, and runs **`npm run test:fast`** (job `fast-backend-checks`) and **`npm run test:gate:ci`** (job `db-critical-gate`). Whether any job is **required** to merge is **not** defined in this repository.
 
-## Manual smoke checklist (local)
+## `GET /api/weeks/current` and `activeMatch`
+
+- **Source:** `app/api/weeks/current/route.ts` returns `getCurrentWeekStatus()` as JSON; **`lib/week/index.ts`** builds the object.
+- **`activeMatch`:** On **`200 OK`**, the serialized body includes property **`activeMatch`**. Value is **`null`** or a non-null preview object per **`docs/api-contracts.md`** (non-null only under the conditions stated there—**including** persisted `MATCHED` participation, a `PENDING`/`ACTIVE` match for that participation, and non-empty peer **`firstName`** in `loadActiveMatchPreview`).
+
+## Manual smoke (local)
+
+**Steps only—this document does not assert they pass.**
 
 Prerequisites: Postgres `DATABASE_URL`, `npx prisma db push`, `npm run db:seed`, dev auth env vars as in `docs/local-e2e-runbook.md`, `npm run dev`.
 
-1. **Health:** `GET /api/health` → `200`, `{"status":"ok"}`.
-2. **Auth:** Without bearer, protected routes return `401`/`503` as configured; with correct bearer, `GET /api/me` → `200`.
-3. **Dashboard:** Loads without server error; week/match cards reflect API (or documented empty states).
-4. **Onboarding / profile / questionnaire / preferences:** Submit flows complete and persist via server actions (no console-only mock).
-5. **Weekly opt-in:** Opt-in action succeeds when eligible; handles ineligible reason copy.
-6. **Match page:** When `MATCHED` with seed data, shows consistent preview; **Accept / Decline** match response actions behave per API.
-7. **Report / block:** With valid match context, submissions succeed; blocked state shows correctly when applicable.
-8. **Reload:** Critical pages (dashboard, match) do not show stale success after a failed action (spot-check).
+1. `GET /api/health` → `200`, `{"status":"ok"}`.
+2. Protected routes: behavior per `lib/auth` and route handlers; with dev bearer configured, `GET /api/me` → `200` when user exists.
+3. Dashboard loads for smoke setup.
+4. Onboarding / profile / questionnaire / preferences: exercise flows you need for MVP.
+5. Weekly opt-in: exercise per eligibility.
+6. Match page / match response: exercise when seed or data provides a match.
+7. Report / block: exercise when API rules allow (valid match context).
+8. Reload: spot-check stale UI.
 
-## Deferred follow-ups (non-blocking)
+## Deferred follow-ups (non-release)
 
-- **Error handling consistency:** RSC vs client boundaries vs `PageStateGate`; generic `error.tsx` vs structured errors.
-- **Action failure classification:** `presentClientThrownActionFailure` heuristics (network vs generic).
-- **Server/client alignment:** `getServerUserId()` ordering vs parallel dashboard fetch; sessionStorage vs server truth on reload (e.g. match responded).
-- **Taxonomy cleanup:** `unexpected` vs `failureClass: "unknown"`.
+- RSC vs client error boundaries
+- Action failure classification
+- Server vs client state on reload
+- Error taxonomy
 
 ## PR description (paste into GitHub)
 
 ```markdown
 ## Summary
-Proposes merging **`ven/ui-shells`** into **`main`**: MVP frontend integration (server actions, authenticated flows, dashboard/match/opt-in/report/block UX).
+Proposes merging **`ven/ui-shells`** into **`main`**: frontend integration (server actions, RSC-loaded pages, dashboard / match / opt-in / report / block flows).
 
-**Status:** This branch is **ready for release validation**—**not** a claim that merge is pre-approved. **No code-level release blockers** were found in the handoff review scope. **Local** `npm run typecheck` and `npm run test:fast` **passed** at the time of the last documentation update; **re-run before merge**; they are **non-authoritative** pre-merge signals only. **Final merge still depends on manual smoke** and **any team-required merge gates** (this repo ships `.github/workflows/`; required checks and branch protection are GitHub settings).
+**Not merge-approved.** This description does not record a completed review or product sign-off.
+
+## Evidence (this repo, re-verify on PR tip)
+
+- **Git:** `main` is contained in this branch (`git merge-base --is-ancestor main HEAD`; `git log HEAD..main` empty) **until `main` diverges**—re-run before merge.
+- **Local commands:** **`npm run typecheck`** and **`npm run test:fast`** exited **0** in the falsification pass for this doc revision; **re-run** on the merge candidate.
+- **Workflow file:** `.github/workflows/ci.yml` runs **`npm run test:fast`** and **`npm run test:gate:ci`** on **`pull_request`** and push to **`main`**. This repository does not define which checks are **required** to merge.
 
 ## Branch / API notes
-- **`ven/ui-shells` fully contains `main`** (nothing on `main` that is not already on this branch).
-- **`GET /api/weeks/current`:** **`activeMatch`** is **always present** on `200 OK` (`null` or a preview object). Non-null only when there is an active week, participation is persisted with **`MATCHED`**, a **`PENDING` or `ACTIVE`** match exists for that participation, and the peer profile has a non-empty **`firstName`**. See **`docs/api-contracts.md`**.
-- **`dev` is redundant if it matches `main`** (same tip). Consider deleting **`dev`** or fast-forwarding it to **`main`** after merge to avoid a duplicate integration branch.
 
-## Testing / merge gates
-- [ ] **Manual smoke** (`docs/release-handoff.md` checklist)
-- [ ] **Any team-required merge gates** (e.g. required checks on the PR—configure in GitHub)
-- [ ] (Optional local) `npm run typecheck`, `npm run test:fast` — pre-merge signals only
+- **`GET /api/weeks/current`:** On **`200 OK`**, JSON includes **`activeMatch`** (always a key; value `null` or preview). Non-null conditions: **`docs/api-contracts.md`** and `lib/week/index.ts` (`loadActiveMatchPreview`).
 
-## Deferred (post-merge, non-release)
-- RSC / client error boundary consistency
-- Action failure classification accuracy
-- Server vs client state on reload (match response)
-- Error taxonomy cleanup
+## Branches
+
+- **`dev`:** redundant **only if** its tip equals **`main`**’s tip (verify locally).
+
+## Testing
+
+- [ ] Manual smoke (`docs/release-handoff.md`)
+- [ ] `npm run typecheck`, `npm run test:fast` on current PR commit
+- [ ] Whatever merge rules your host enforces (outside this repo)
+
+## Deferred (post-merge)
+
+- RSC / client error handling consistency
+- Action failure classification
+- Server vs client state on reload
+- Error taxonomy
 
 ## Risk / monitoring
-- Auth mismatch edge cases
-- Misclassified client errors
+
+- Auth mismatch
+- Misclassified errors
 - Stale UI after reload
 ```
