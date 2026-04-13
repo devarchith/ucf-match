@@ -8,17 +8,18 @@
 
 ## MVP ship summary
 
-- **MVP is ready:** **`npm run typecheck`** and **`npm run test:fast`** pass on this branch; **no release blockers found** in the checks and review summarized here.
+- **Release validation status:** This branch is **ready for release validation** (review, manual smoke, and **required CI / merge gates**—not a statement that merge is already approved). At the time of this handoff, **no code-level release blockers** were found in the scope reviewed below.
+- **Local checks (non-authoritative):** **`npm run typecheck`** and **`npm run test:fast`** pass on this branch. They are **useful pre-merge signals only**; they are **not** the authoritative release gate. **Final merge still depends on** your **required CI pipeline** (or equivalent org gates) and **manual smoke** as defined by the team.
 - **Goal:** Ship the integrated UI that calls existing Next.js route handlers (dev bearer in development) with truthful loading/error states, without changing auth policy or matching/safety **enforcement** rules in the safety/matching layers.
 - **HTTP response shape (explicit):** `GET /api/weeks/current` **does** include an **additive, non-breaking** top-level field **`activeMatch`** (preview when the user is `MATCHED` and data resolves). Existing fields keep prior semantics; this extends the JSON body. Strict clients must accept unknown properties or be updated to read `activeMatch`.
-- **Documentation drift (not a release blocker):** `docs/api-contracts.md` has **not** been updated to list **`activeMatch`**. That is **contract doc drift only**—track as a follow-up; it does **not** block MVP merge if product accepts additive responses.
+- **Documentation drift (not a release blocker):** `docs/api-contracts.md` has **not** been updated to list **`activeMatch`**. That is **contract doc drift only**—track as a follow-up; it does **not** block MVP merge on its own if product accepts additive responses, **subject to** CI and smoke above.
 
 ## Ship verdict
 
 | Item | Status |
 |------|--------|
-| **READY / NOT READY** | **READY** — MVP is ready to merge from this handoff; no release blockers found in automated checks and the scope below. |
-| **Blocking issues** | **None found.** (API response for `/api/weeks/current` **was** extended with **`activeMatch`**; see above—that is additive and non-breaking, not a blocker.) |
+| **READY / NOT READY** | **Ready for release validation** — no **code-level** release blockers found in this handoff’s scope; **merge approval** still requires **required CI** and **manual smoke** (and normal review). |
+| **Blocking issues** | **None found** in the reviewed scope. (API response for `/api/weeks/current` **was** extended with **`activeMatch`**; see above—that is additive and non-breaking, not a blocker.) |
 
 ## Obvious release risks (observed, not speculative)
 
@@ -50,19 +51,19 @@ Prerequisites: Postgres `DATABASE_URL`, `npx prisma db push`, `npm run db:seed`,
 
 ```markdown
 ## Summary
-Merges **`ven/ui-shells`** into **`main`**: MVP frontend integration (server actions, authenticated flows, dashboard/match/opt-in/report/block UX).
+Proposes merging **`ven/ui-shells`** into **`main`**: MVP frontend integration (server actions, authenticated flows, dashboard/match/opt-in/report/block UX).
 
-**MVP:** Ready. **No release blockers found** here; **`npm run typecheck`** and **`npm run test:fast`** pass on this branch.
+**Status:** This branch is **ready for release validation** (review + checks below)—**not** a claim that merge is pre-approved. **No code-level release blockers** were found in the handoff review. **Local** `npm run typecheck` and `npm run test:fast` passed at handoff time; they are **not** the authoritative merge gate—**final merge still depends on required CI** and **manual smoke** per team process.
 
 ## Branch / API notes
 - **`ven/ui-shells` fully contains `main`** (nothing on `main` that is not already on this branch).
 - **`GET /api/weeks/current`** response JSON includes an **additive, non-breaking** top-level field **`activeMatch`** (match preview when the user is `MATCHED`). This **is** a response shape extension on that route; it does not remove or rename existing fields. **`docs/api-contracts.md` has not been updated**—that is **documentation drift only**, **not** treated as a release blocker for MVP.
 - **`dev` is redundant if it matches `main`** (same tip). Consider deleting **`dev`** or fast-forwarding it to **`main`** after merge to avoid a duplicate integration branch.
 
-## Testing
-- [ ] `npm run typecheck`
-- [ ] `npm run test:fast`
-- [ ] Manual smoke (see `docs/release-handoff.md` checklist)
+## Testing / merge gates
+- [ ] **Required CI** (or org-defined merge gates) **green**
+- [ ] **Manual smoke** (`docs/release-handoff.md` checklist)
+- [ ] (Optional local checks) `npm run typecheck`, `npm run test:fast` — pre-merge signals only
 
 ## Deferred (post-merge, non-release)
 - RSC / client error boundary consistency
