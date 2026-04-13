@@ -2,27 +2,28 @@
 
 ## Branch state (vs `main`)
 
-- **`ven/ui-shells` is ahead of `main`** by commits that add frontend integration (server actions, RSC data loading, auth-aware flows) and **additive** weekly status data for the match UI.
-- **`main` has no commits that are not already on `ven/ui-shells`** (merge is a fast-forward from `main`’s perspective once this branch lands).
-- **`origin/dev` matches `origin/main`** at the same SHA in this repo snapshot; **`dev` is redundant** as a second integration branch unless you use it for a different workflow. Safe options after merge: **delete `dev`**, or **reset `dev` to `main`** to avoid confusion—team preference.
+- **`ven/ui-shells` fully contains `main`:** every commit on `main` is present on this branch; **`main` has no commits that are not already on `ven/ui-shells`**. Merging this branch into `main` is a fast-forward from `main`’s perspective once it lands.
+- **`ven/ui-shells` is ahead of `main`** by commits that add frontend integration (server actions, RSC data loading, auth-aware flows) and server support for the match UI.
+- **`dev` is redundant if it matches `main`** (same tip SHA). In that case it is a duplicate integration line unless you rely on it for workflow. After merge, **delete `dev`** or **reset `dev` to `main`**—team preference.
 
 ## MVP ship summary
 
-- **Goal:** Ship the integrated UI shell that calls existing Next.js APIs (dev bearer in development) with truthful loading/error states, without changing auth policy or matching/safety **rules** in the enforcement layer.
-- **Automated checks on this branch:** `npm run typecheck` and `npm run test:fast` both pass.
-- **Additive API note:** `GET /api/weeks/current` responses now include an optional **`activeMatch`** preview object (when the user is `MATCHED` and data is available). This is **additive** JSON; clients that ignore unknown fields remain compatible. **`docs/api-contracts.md` does not yet list `activeMatch`**—update that doc in a follow-up if you treat the markdown file as the source of truth.
+- **MVP is ready:** **`npm run typecheck`** and **`npm run test:fast`** pass on this branch; **no release blockers found** in the checks and review summarized here.
+- **Goal:** Ship the integrated UI that calls existing Next.js route handlers (dev bearer in development) with truthful loading/error states, without changing auth policy or matching/safety **enforcement** rules in the safety/matching layers.
+- **HTTP response shape (explicit):** `GET /api/weeks/current` **does** include an **additive, non-breaking** top-level field **`activeMatch`** (preview when the user is `MATCHED` and data resolves). Existing fields keep prior semantics; this extends the JSON body. Strict clients must accept unknown properties or be updated to read `activeMatch`.
+- **Documentation drift (not a release blocker):** `docs/api-contracts.md` has **not** been updated to list **`activeMatch`**. That is **contract doc drift only**—track as a follow-up; it does **not** block MVP merge if product accepts additive responses.
 
 ## Ship verdict
 
 | Item | Status |
 |------|--------|
-| **READY / NOT READY** | **READY** (no failing tests or type errors observed; no blocking defect found in code review scope below) |
-| **Blocking issues** | **None found** from current checks and diff review |
+| **READY / NOT READY** | **READY** — MVP is ready to merge from this handoff; no release blockers found in automated checks and the scope below. |
+| **Blocking issues** | **None found.** (API response for `/api/weeks/current` **was** extended with **`activeMatch`**; see above—that is additive and non-breaking, not a blocker.) |
 
 ## Obvious release risks (observed, not speculative)
 
-- **Contract documentation drift:** `activeMatch` on `GET /api/weeks/current` is implemented in `lib/week/index.ts` and returned by `app/api/weeks/current/route.ts` but is **not** described in `docs/api-contracts.md` yet.
-- **Scope:** This branch touches many files (UI + new `app/actions/*` + API client helpers). Merge conflicts are possible if `main` was advanced elsewhere—rebase/merge and re-run checks before merge.
+- **`docs/api-contracts.md` lags the wire format** for `GET /api/weeks/current` (missing **`activeMatch`**). This is **documentation drift**, not a release blocker, if stakeholders agree additive JSON is acceptable for MVP.
+- **Scope:** This branch touches many files (UI + new `app/actions/*` + API client helpers). If `main` moved elsewhere, rebase/merge and re-run checks before merge.
 
 ## Manual smoke checklist (local)
 
@@ -49,13 +50,14 @@ Prerequisites: Postgres `DATABASE_URL`, `npx prisma db push`, `npm run db:seed`,
 
 ```markdown
 ## Summary
-Merges **`ven/ui-shells`** into **`main`**: frontend integration for MVP (server actions, authenticated flows, dashboard/match/opt-in/report/block UX) aligned with current API contracts.
+Merges **`ven/ui-shells`** into **`main`**: MVP frontend integration (server actions, authenticated flows, dashboard/match/opt-in/report/block UX).
 
-**MVP:** Not blocked by known issues; **`npm run typecheck`** and **`npm run test:fast`** pass on this branch.
+**MVP:** Ready. **No release blockers found** here; **`npm run typecheck`** and **`npm run test:fast`** pass on this branch.
 
-## Branch / integration notes
-- **`dev` is redundant** if it matches **`main`** (same tip); consider deleting or fast-forwarding **`dev`** after merge to avoid duplicate branches.
-- **Additive JSON:** `GET /api/weeks/current` may include **`activeMatch`** (preview when `MATCHED`). See `docs/release-handoff.md`.
+## Branch / API notes
+- **`ven/ui-shells` fully contains `main`** (nothing on `main` that is not already on this branch).
+- **`GET /api/weeks/current`** response JSON includes an **additive, non-breaking** top-level field **`activeMatch`** (match preview when the user is `MATCHED`). This **is** a response shape extension on that route; it does not remove or rename existing fields. **`docs/api-contracts.md` has not been updated**—that is **documentation drift only**, **not** treated as a release blocker for MVP.
+- **`dev` is redundant if it matches `main`** (same tip). Consider deleting **`dev`** or fast-forwarding it to **`main`** after merge to avoid a duplicate integration branch.
 
 ## Testing
 - [ ] `npm run typecheck`
@@ -67,7 +69,7 @@ Merges **`ven/ui-shells`** into **`main`**: frontend integration for MVP (server
 - Action failure classification accuracy
 - Server vs client state on reload (match response)
 - Error taxonomy cleanup
-- Update `docs/api-contracts.md` for `activeMatch` on weekly current
+- Update `docs/api-contracts.md` for **`activeMatch`** on `GET /api/weeks/current`
 
 ## Risk / monitoring
 - Auth mismatch edge cases
