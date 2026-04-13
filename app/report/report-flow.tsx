@@ -22,7 +22,7 @@ import {
 import { normalizeEntryPoint } from "@/lib/safety/entry-point";
 import { reportReasonOptions } from "@/lib/safety/report-reasons";
 import type { ViewState } from "@/lib/types/ui-state";
-import { issuesByPath, NETWORK_ERROR_MESSAGE } from "@/lib/validation/zod-issues";
+import { issuesByPath } from "@/lib/validation/zod-issues";
 import { ReportReason } from "@prisma/client";
 
 export function ReportFlow() {

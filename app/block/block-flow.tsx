@@ -19,7 +19,7 @@ import {
 } from "@/lib/auth/server-action-failure-copy";
 import { normalizeEntryPoint } from "@/lib/safety/entry-point";
 import type { ViewState } from "@/lib/types/ui-state";
-import { issuesByPath, NETWORK_ERROR_MESSAGE } from "@/lib/validation/zod-issues";
+import { issuesByPath } from "@/lib/validation/zod-issues";
 
 export function BlockFlow() {
   const searchParams = useSearchParams();
