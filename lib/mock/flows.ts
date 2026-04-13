@@ -6,10 +6,11 @@ export type StepItem = {
 
 export type OnboardingDraft = {
   firstName: string;
+  lastName: string;
   major: string;
   graduationYear: string;
-  intro: string;
-  boundaries: string;
+  /** 1:1 with API `profile.bio` (single field; no silent join/split). */
+  bio: string;
 };
 
 export type PromptGroup = "availability" | "vibe";
@@ -61,16 +62,19 @@ export type PreferencesDraft = {
 
 export const onboardingSteps: StepItem[] = [
   { id: "basics", label: "Basics", hint: "Identity and campus context" },
-  { id: "about-you", label: "About You", hint: "How you show up in conversation" },
-  { id: "comfort", label: "Comfort", hint: "Boundaries and preferences" }
+  {
+    id: "bio",
+    label: "Bio",
+    hint: "How you show up, conversation style, and any meetup boundaries — stored as one profile field"
+  }
 ];
 
 export const onboardingDraft: OnboardingDraft = {
   firstName: "",
+  lastName: "",
   major: "",
   graduationYear: "",
-  intro: "",
-  boundaries: ""
+  bio: ""
 };
 
 export const questionnaireSteps: StepItem[] = [

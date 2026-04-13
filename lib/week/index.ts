@@ -1,4 +1,4 @@
-import { Prisma, ParticipationStatus, WeekStatus } from "@prisma/client";
+import { MatchStatus, Prisma, ParticipationStatus, WeekStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { ucfEmailSchema } from "@/lib/validation";
 import { hasMeaningfulQuestionnaireAnswers } from "@/lib/validation/questionnaire";
@@ -141,6 +141,150 @@ async function getEligibility(userId: string): Promise<EligibilityResult> {
   return { eligible: true, reason: null };
 }
 
+export type WeeklyActiveMatchPreview = {
+  matchId: string;
+  otherUserId: string;
+  firstName: string;
+  major: string | null;
+  bio: string | null;
+  graduationYear: number | null;
+  sharedInterests: string[];
+  compatibilityReasons: string[];
+};
+
+function intersectInterestLabels(a: string[] | undefined, b: string[] | undefined) {
+  if (!a?.length || !b?.length) {
+    return [];
+  }
+  const setB = new Set(b.map((value) => value.trim().toLowerCase()).filter((value) => value.length > 0));
+  const out: string[] = [];
+  for (const value of a) {
+    const trimmed = value.trim();
+    if (trimmed.length > 0 && setB.has(trimmed.toLowerCase())) {
+      out.push(trimmed);
+    }
+  }
+  return out;
+}
+
+async function loadActiveMatchPreview(
+  userId: string,
+  weekId: string,
+  participationId: string
+): Promise<WeeklyActiveMatchPreview | null> {
+  const [self, match] = await Promise.all([
+    db.user.findUnique({
+      where: { id: userId },
+      select: {
+        profile: { select: { major: true, graduationYear: true } },
+        preference: { select: { interests: true } }
+      }
+    }),
+    db.match.findFirst({
+      where: {
+        weekId,
+        status: { in: [MatchStatus.PENDING, MatchStatus.ACTIVE] },
+        OR: [{ participantAId: participationId }, { participantBId: participationId }]
+      },
+      select: {
+        id: true,
+        participantA: {
+          select: {
+            userId: true,
+            user: {
+              select: {
+                id: true,
+                profile: {
+                  select: {
+                    firstName: true,
+                    major: true,
+                    bio: true,
+                    graduationYear: true
+                  }
+                },
+                preference: { select: { interests: true } }
+              }
+            }
+          }
+        },
+        participantB: {
+          select: {
+            userId: true,
+            user: {
+              select: {
+                id: true,
+                profile: {
+                  select: {
+                    firstName: true,
+                    major: true,
+                    bio: true,
+                    graduationYear: true
+                  }
+                },
+                preference: { select: { interests: true } }
+              }
+            }
+          }
+        }
+      }
+    })
+  ]);
+
+  if (!match) {
+    return null;
+  }
+
+  const other =
+    match.participantA.userId === userId ? match.participantB.user : match.participantA.user;
+  const profile = other.profile;
+  if (!profile?.firstName) {
+    return null;
+  }
+
+  const selfInterests = self?.preference?.interests;
+  const otherInterests = other.preference?.interests;
+  const sharedInterests = intersectInterestLabels(selfInterests, otherInterests);
+
+  const reasons: string[] = [];
+  if (sharedInterests.length > 0) {
+    reasons.push(
+      `${sharedInterests.length} overlapping interest${sharedInterests.length === 1 ? "" : "s"} from your weekly preference lists.`
+    );
+  }
+  const selfMajor = self?.profile?.major;
+  const otherMajor = profile.major;
+  if (
+    selfMajor &&
+    otherMajor &&
+    selfMajor.trim().toLowerCase() === otherMajor.trim().toLowerCase()
+  ) {
+    reasons.push("Same major.");
+  }
+  const selfYear = self?.profile?.graduationYear;
+  const otherYear = profile.graduationYear;
+  if (
+    selfYear != null &&
+    otherYear != null &&
+    Math.abs(selfYear - otherYear) <= 1
+  ) {
+    reasons.push("Similar graduation timeline.");
+  }
+  if (reasons.length === 0) {
+    reasons.push("You are both in this week’s active matching pool.");
+  }
+
+  return {
+    matchId: match.id,
+    otherUserId: other.id,
+    firstName: profile.firstName,
+    major: profile.major,
+    bio: profile.bio,
+    graduationYear: profile.graduationYear,
+    sharedInterests,
+    compatibilityReasons: reasons.slice(0, 3)
+  };
+}
+
 export async function getCurrentWeekStatus(userId: string) {
   const [week, eligibility] = await Promise.all([
     getActiveWeek(),
@@ -152,7 +296,8 @@ export async function getCurrentWeekStatus(userId: string) {
       week: null,
       participation: null,
       canOptIn: false,
-      reason: "No active week."
+      reason: "No active week.",
+      activeMatch: null as WeeklyActiveMatchPreview | null
     };
   }
 
@@ -171,6 +316,11 @@ export async function getCurrentWeekStatus(userId: string) {
     }
   });
 
+  let activeMatch: WeeklyActiveMatchPreview | null = null;
+  if (participation?.status === ParticipationStatus.MATCHED && participation.id) {
+    activeMatch = await loadActiveMatchPreview(userId, week.id, participation.id);
+  }
+
   return {
     week: {
       id: week.id,
@@ -186,7 +336,8 @@ export async function getCurrentWeekStatus(userId: string) {
       updatedAt: null
     },
     canOptIn: eligibility.eligible,
-    reason: eligibility.reason
+    reason: eligibility.reason,
+    activeMatch
   };
 }
 

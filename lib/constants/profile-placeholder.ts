@@ -1,0 +1,3 @@
+/** Neutral placeholder when profiles have no photo in the data model. */
+export const PROFILE_PHOTO_PLACEHOLDER_URL =
+  "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='480' height='320'><defs><linearGradient id='g' x1='0' x2='1' y1='0' y2='1'><stop offset='0%' stop-color='%23f4f4f5'/><stop offset='100%' stop-color='%23e4e4e7'/></linearGradient></defs><rect width='100%' height='100%' fill='url(%23g)'/><circle cx='240' cy='118' r='58' fill='%23d4d4d8'/><rect x='130' y='196' width='220' height='84' rx='42' fill='%23d4d4d8'/><text x='240' y='302' text-anchor='middle' font-size='18' fill='%2352525b' font-family='Arial'>Profile photo</text></svg>";

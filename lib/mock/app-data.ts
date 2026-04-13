@@ -13,10 +13,10 @@ export type DashboardData = {
   completion: number;
   participation: {
     optedIn: boolean;
-    questionnaireComplete: boolean;
+    questionnaireOnFile: boolean;
     preferencesSet: boolean;
   };
-  checklist: Array<{ label: string; done: boolean }>;
+  checklist: Array<{ id: string; label: string; done: boolean }>;
   primaryActions: DashboardAction[];
 };
 
@@ -46,14 +46,14 @@ export const dashboardData: DashboardData = {
   completion: 68,
   participation: {
     optedIn: false,
-    questionnaireComplete: false,
+    questionnaireOnFile: false,
     preferencesSet: false
   },
   checklist: [
-    { label: "Verify UCF email", done: true },
-    { label: "Finish profile basics", done: true },
-    { label: "Complete weekly questionnaire", done: false },
-    { label: "Set weekly preferences", done: false }
+    { id: "email", label: "Verify UCF email", done: true },
+    { id: "profile", label: "Finish profile basics", done: true },
+    { id: "questionnaire", label: "Complete weekly questionnaire", done: false },
+    { id: "preferences", label: "Set weekly preferences", done: false }
   ],
   primaryActions: [
     { id: "opt-in", label: "Complete weekly opt-in", href: "/weekly-opt-in", priority: "primary" },
